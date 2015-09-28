@@ -1,13 +1,12 @@
-.PHONY:	build push
+.PHONY:	clean build push
 
-IMAGE = pause
-TAG = 0.8.0
+IMAGE = kube-apiserver
+TAG = 1.0.6
 
-build:
-	./prepare.sh
+build: clean
 	docker build -t sigmas/$(IMAGE):$(TAG) .
 
-push:	build
+push: build
 	docker push sigmas/$(IMAGE):$(TAG)
 
 all:	push
