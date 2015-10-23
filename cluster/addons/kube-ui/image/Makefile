@@ -6,7 +6,7 @@
 
 # Keep this at dev, so no one accidentally blows away the latest published version.
 TAG = dev # current version: v1.1
-PREFIX = gcr.io/google_containers
+PREFIX = sigmas
 
 all: push
 
@@ -17,7 +17,7 @@ container: kube-ui
 	docker build -t $(PREFIX)/kube-ui:$(TAG) .
 
 push: container
-	gcloud docker push $(PREFIX)/kube-ui:$(TAG)
+	docker push $(PREFIX)/kube-ui:$(TAG)
 
 clean:
 	rm -f kube-ui
