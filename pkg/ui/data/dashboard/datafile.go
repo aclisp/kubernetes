@@ -586,7 +586,7 @@ angular.module("kubernetesApp.config", [])
 
 .constant("ENV", {
 	"/": {
-		"k8sApiServer": "http://221.228.86.4:6443/api/v1",
+		"k8sApiServer": "/api/v1",
 		"k8sDataServer": "",
 		"k8sDataPollMinIntervalSec": 10,
 		"k8sDataPollMaxIntervalSec": 120,
