@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/client"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/labels"
@@ -370,8 +371,9 @@ var _ = Describe("Services", func() {
 		t.CreateWebserverRC(1)
 
 		By("changing service " + serviceName + " to type=NodePort")
-		service.Spec.Type = api.ServiceTypeNodePort
-		service, err = c.Services(ns).Update(service)
+		service, err = updateService(c, ns, serviceName, func(s *api.Service) {
+			s.Spec.Type = api.ServiceTypeNodePort
+		})
 		Expect(err).NotTo(HaveOccurred())
 
 		if service.Spec.Type != api.ServiceTypeNodePort {
@@ -398,7 +400,9 @@ var _ = Describe("Services", func() {
 
 		By("changing service " + serviceName + " to type=LoadBalancer")
 		service.Spec.Type = api.ServiceTypeLoadBalancer
-		service, err = c.Services(ns).Update(service)
+		service, err = updateService(c, ns, serviceName, func(s *api.Service) {
+			s.Spec.Type = api.ServiceTypeLoadBalancer
+		})
 		Expect(err).NotTo(HaveOccurred())
 
 		// Wait for the load balancer to be created asynchronously
@@ -434,8 +438,9 @@ var _ = Describe("Services", func() {
 			//Check for (unlikely) assignment at bottom of range
 			nodePort2 = nodePort1 + 1
 		}
-		service.Spec.Ports[0].NodePort = nodePort2
-		service, err = c.Services(ns).Update(service)
+		service, err = updateService(c, ns, serviceName, func(s *api.Service) {
+			s.Spec.Ports[0].NodePort = nodePort2
+		})
 		Expect(err).NotTo(HaveOccurred())
 
 		if service.Spec.Type != api.ServiceTypeLoadBalancer {
@@ -463,9 +468,10 @@ var _ = Describe("Services", func() {
 		testNotReachable(ip, nodePort1)
 
 		By("changing service " + serviceName + " back to type=ClusterIP")
-		service.Spec.Type = api.ServiceTypeClusterIP
-		service.Spec.Ports[0].NodePort = 0
-		service, err = c.Services(ns).Update(service)
+		service, err = updateService(c, ns, serviceName, func(s *api.Service) {
+			s.Spec.Type = api.ServiceTypeClusterIP
+			s.Spec.Ports[0].NodePort = 0
+		})
 		Expect(err).NotTo(HaveOccurred())
 
 		if service.Spec.Type != api.ServiceTypeClusterIP {
@@ -552,8 +558,9 @@ var _ = Describe("Services", func() {
 		testLoadBalancerReachable(ingress, 80)
 
 		By("changing service " + serviceName + " to type=NodePort")
-		service.Spec.Type = api.ServiceTypeNodePort
-		service, err = c.Services(ns).Update(service)
+		service, err = updateService(c, ns, serviceName, func(s *api.Service) {
+			s.Spec.Type = api.ServiceTypeNodePort
+		})
 		Expect(err).NotTo(HaveOccurred())
 
 		if service.Spec.Type != api.ServiceTypeNodePort {
@@ -624,8 +631,7 @@ var _ = Describe("Services", func() {
 		if err == nil {
 			Failf("Created service with conflicting NodePort: %v", result2)
 		}
-		expectedErr := fmt.Sprintf("Service \"%s\" is invalid: spec.ports[0].nodePort: invalid value '%d': provided port is already allocated", serviceName2, port.NodePort)
-		Expect(fmt.Sprintf("%v", err)).To(Equal(expectedErr))
+		Expect(fmt.Sprintf("%v", err)).To(MatchRegexp("Service \"%s\" is invalid: spec.ports\\[0\\].nodePort: invalid value '%d'(: |, Details: )provided port is already allocated", serviceName2, port.NodePort))
 
 		By("deleting original service " + serviceName + " with type NodePort in namespace " + ns)
 		err = t.DeleteService(serviceName)
@@ -678,13 +684,13 @@ var _ = Describe("Services", func() {
 			}
 		}
 		By(fmt.Sprintf("changing service "+serviceName+" to out-of-range NodePort %d", outOfRangeNodePort))
-		service.Spec.Ports[0].NodePort = outOfRangeNodePort
-		result, err := t.Client.Services(t.Namespace).Update(service)
+		result, err := updateService(c, ns, serviceName, func(s *api.Service) {
+			s.Spec.Ports[0].NodePort = outOfRangeNodePort
+		})
 		if err == nil {
 			Failf("failed to prevent update of service with out-of-range NodePort: %v", result)
 		}
-		expectedErr := fmt.Sprintf("Service \"%s\" is invalid: spec.ports[0].nodePort: invalid value '%d': provided port is not in the valid range", serviceName, outOfRangeNodePort)
-		Expect(fmt.Sprintf("%v", err)).To(Equal(expectedErr))
+		Expect(fmt.Sprintf("%v", err)).To(MatchRegexp("Service \"%s\" is invalid: spec.ports\\[0\\].nodePort: invalid value '%d'(: |, Details: )provided port is not in the valid range", serviceName, outOfRangeNodePort))
 
 		By("deleting original service " + serviceName)
 		err = t.DeleteService(serviceName)
@@ -698,7 +704,7 @@ var _ = Describe("Services", func() {
 		if err == nil {
 			Failf("failed to prevent create of service with out-of-range NodePort (%d): %v", outOfRangeNodePort, service)
 		}
-		Expect(fmt.Sprintf("%v", err)).To(Equal(expectedErr))
+		Expect(fmt.Sprintf("%v", err)).To(MatchRegexp("Service \"%s\" is invalid: spec.ports\\[0\\].nodePort: invalid value '%d'(: |, Details: )provided port is not in the valid range", serviceName, outOfRangeNodePort))
 	})
 
 	It("should release NodePorts on delete", func() {
@@ -800,6 +806,29 @@ var _ = Describe("Services", func() {
 		validateUniqueOrFail(ingressPoints)
 	})
 })
+
+// updateService fetches a service, calls the update function on it,
+// and then attempts to send the updated service. It retries up to 2
+// times in the face of timeouts and conflicts.
+func updateService(c *client.Client, namespace, serviceName string, update func(*api.Service)) (*api.Service, error) {
+	var service *api.Service
+	var err error
+	for i := 0; i < 3; i++ {
+		service, err = c.Services(namespace).Get(serviceName)
+		if err != nil {
+			return service, err
+		}
+
+		update(service)
+
+		service, err = c.Services(namespace).Update(service)
+
+		if !errors.IsConflict(err) && !errors.IsServerTimeout(err) {
+			return service, err
+		}
+	}
+	return service, err
+}
 
 func waitForLoadBalancerIngress(c *client.Client, serviceName, namespace string) (*api.Service, error) {
 	// TODO: once support ticket 21807001 is resolved, reduce this timeout back to something reasonable

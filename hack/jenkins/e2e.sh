@@ -190,16 +190,17 @@ case ${JOB_NAME} in
     NUM_MINIONS="2"
     ;;
 
-  # Runs non-flaky tests on GCE on the release-latest branch,
+  # Runs non-flaky tests on GCE on the release-1.0 branch,
   # sequentially. As a reminder, if you need to change the skip list
   # or flaky test list on the release branch, you'll need to propose a
   # pull request directly to the release branch itself.
-  kubernetes-e2e-gce-release)
-    : ${E2E_CLUSTER_NAME:="jenkins-gce-e2e-release"}
+  kubernetes-e2e-gce-release-1.0)
+    : ${E2E_CLUSTER_NAME:="jenkins-gce-e2e-release-1.0"}
     : ${E2E_DOWN:="false"}
-    : ${E2E_NETWORK:="e2e-gce-release"}
+    : ${E2E_NETWORK:="e2e-gce-release-1-0"}
     : ${GINKGO_TEST_ARGS:="--ginkgo.skip=${GCE_DEFAULT_SKIP_TEST_REGEX}|${GCE_FLAKY_TEST_REGEX}"}
-    : ${KUBE_GCE_INSTANCE_PREFIX="e2e-gce"}
+    : ${KUBE_GCE_INSTANCE_PREFIX="e2e-gce-1-0"}
+    : ${KUBE_GCS_STAGING_PATH_SUFFIX:="release-1.0"}
     : ${PROJECT:="k8s-jkns-e2e-gce-release"}
     ;;
 esac
@@ -343,12 +344,21 @@ cd kubernetes
 ARTIFACTS=${WORKSPACE}/_artifacts
 mkdir -p ${ARTIFACTS}
 export E2E_REPORT_DIR=${ARTIFACTS}
+declare -r gcp_resources_before="${ARTIFACTS}/gcp-resources-before.txt"
+declare -r gcp_resources_cluster_up="${ARTIFACTS}/gcp-resources-cluster-up.txt"
+declare -r gcp_resources_after="${ARTIFACTS}/gcp-resources-after.txt"
 
 ### Set up ###
 if [[ "${E2E_UP,,}" == "true" ]]; then
     go run ./hack/e2e.go ${E2E_OPT} -v --down
+    if [[ ${KUBERNETES_PROVIDER} == "gce" || ${KUBERNETES_PROVIDER} == "gke" ]]; then
+      ./cluster/gce/list-resources.sh > "${gcp_resources_before}"
+    fi
     go run ./hack/e2e.go ${E2E_OPT} -v --up
     go run ./hack/e2e.go -v --ctl="version --match-server-version=false"
+    if [[ ${KUBERNETES_PROVIDER} == "gce" || ${KUBERNETES_PROVIDER} == "gke" ]]; then
+      ./cluster/gce/list-resources.sh > "${gcp_resources_cluster_up}"
+    fi
 fi
 
 ### Run tests ###
@@ -381,4 +391,11 @@ if [[ "${E2E_DOWN,,}" == "true" ]]; then
     # for the wait between attempts.
     sleep 30
     go run ./hack/e2e.go ${E2E_OPT} -v --down
+    if [[ ${KUBERNETES_PROVIDER} == "gce" || ${KUBERNETES_PROVIDER} == "gke" ]]; then
+      ./cluster/gce/list-resources.sh > "${gcp_resources_after}"
+    fi
+fi
+
+if [[ -f "${gcp_resources_before}" && -f "${gcp_resources_after}" ]]; then
+  diff -sw -U0 -F'^\[.*\]$' "${gcp_resources_before}" "${gcp_resources_after}" || true
 fi

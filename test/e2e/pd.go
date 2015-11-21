@@ -221,7 +221,7 @@ var _ = Describe("Pod Disks", func() {
 			verifyPDContentsViaContainer(framework, host0Pod.Name, containerName, fileAndContentToVerify)
 
 			By("deleting host0Pod")
-			expectNoError(podClient.Delete(host0Pod.Name, nil), "Failed to delete host0Pod")
+			expectNoError(podClient.Delete(host0Pod.Name, api.NewDeleteOptions(0)), "Failed to delete host0Pod")
 		}
 
 		By(fmt.Sprintf("deleting PD %q", diskName))
@@ -262,7 +262,7 @@ func createPD() (string, error) {
 
 		zone := testContext.CloudConfig.Zone
 		// TODO: make this hit the compute API directly instread of shelling out to gcloud.
-		err := exec.Command("gcloud", "compute", "--project="+testContext.CloudConfig.ProjectID, "disks", "create", "--zone="+zone, "--size=10GB", pdName).Run()
+		err := exec.Command("gcloud", "compute", "--quiet", "--project="+testContext.CloudConfig.ProjectID, "disks", "create", "--zone="+zone, "--size=10GB", pdName).Run()
 		if err != nil {
 			return "", err
 		}
@@ -283,7 +283,7 @@ func deletePD(pdName string) error {
 		zone := testContext.CloudConfig.Zone
 
 		// TODO: make this hit the compute API directly.
-		cmd := exec.Command("gcloud", "compute", "--project="+testContext.CloudConfig.ProjectID, "disks", "delete", "--zone="+zone, pdName)
+		cmd := exec.Command("gcloud", "compute", "--quiet", "--project="+testContext.CloudConfig.ProjectID, "disks", "delete", "--zone="+zone, pdName)
 		data, err := cmd.CombinedOutput()
 		if err != nil {
 			Logf("Error deleting PD: %s (%v)", string(data), err)
@@ -305,7 +305,7 @@ func detachPD(hostName, pdName string) error {
 		zone := testContext.CloudConfig.Zone
 
 		// TODO: make this hit the compute API directly.
-		return exec.Command("gcloud", "compute", "--project="+testContext.CloudConfig.ProjectID, "detach-disk", "--zone="+zone, "--disk="+pdName, instanceName).Run()
+		return exec.Command("gcloud", "compute", "--quiet", "--project="+testContext.CloudConfig.ProjectID, "detach-disk", "--zone="+zone, "--disk="+pdName, instanceName).Run()
 	} else {
 		volumes, ok := testContext.CloudConfig.Provider.(aws_cloud.Volumes)
 		if !ok {

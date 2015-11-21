@@ -1,6 +1,4 @@
-#!/bin/bash
-
-# Copyright 2014 The Kubernetes Authors All rights reserved.
+# Copyright 2015 The Kubernetes Authors All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,16 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if [ "$#" -lt 1 ]; then
-    echo "Usage: run-gen-swagger-docs.sh <API version> <absolute output path, default to PWD>"
-    exit
-fi
-OUTPUT=${2:-${PWD}}
+# This file creates a build environment for building and running kubernetes
+# unit and integration tests
 
-KUBE_ROOT=$(realpath $(dirname "${BASH_SOURCE}")/../..)
+FROM golang:1.4
+MAINTAINER  Jeff Lowdermilk <jeffml@google.com>
 
-docker run \
-    -v ${OUTPUT}:/output \
-    -v ${KUBE_ROOT}:/kube \
-    gcr.io/google_containers/gen-swagger-docs:v1 /kube/api/swagger-spec/$1.json /kube/pkg/api/$1/register.go
+ENV WORKSPACE               /workspace
+ENV TERM                    xterm
 
+WORKDIR /workspace
+
+RUN apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y rsync
+RUN apt-get install -y file
+RUN mkdir -p /go/src/k8s.io/kubernetes
+RUN ln -s /go/src/k8s.io/kubernetes /workspace/kubernetes
+
+RUN /bin/bash

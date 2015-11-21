@@ -67,3 +67,13 @@ doc_tmp/
 
 kubernetes.iml
 .idea/
+
+# Test artifacts produced by Jenkins jobs
+/_artifacts/
+
+# Go dependencies installed on Jenkins
+/_gopath/
+
+# Config directories created by gcloud and gsutil on Jenkins
+/.config/gcloud/
+/.gsutil/
