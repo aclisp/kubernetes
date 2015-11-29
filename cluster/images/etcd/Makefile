@@ -1,7 +1,7 @@
 .PHONY:	clean build push
 
 IMAGE = etcd
-TAG = 2.0.12
+TAG = v2.0.12
 ETCD_VERSION = 2.0.12
 OUTPUT_DIR = $(IMAGE)-v$(ETCD_VERSION)-linux-amd64
 
@@ -13,9 +13,9 @@ build: clean
 	tar xzvf $(IMAGE)-v$(ETCD_VERSION)-linux-amd64.tar.gz
 	cp $(OUTPUT_DIR)/etcd .
 	cp $(OUTPUT_DIR)/etcdctl .
-	docker build -t gcr.io/google_containers/$(IMAGE):$(TAG) .
+	sudo docker build -t sigmas/$(IMAGE):$(TAG) .
 
 push: build
-	gcloud docker push gcr.io/google_containers/$(IMAGE):$(TAG)
+	sudo docker push sigmas/$(IMAGE):$(TAG)
 
 all:	push
