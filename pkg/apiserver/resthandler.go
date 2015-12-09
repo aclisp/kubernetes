@@ -380,17 +380,6 @@ func PatchResource(r rest.Patcher, scope RequestScope, typer runtime.ObjectTyper
 		ctx := scope.ContextFunc(req)
 		ctx = api.WithNamespace(ctx, namespace)
 
-		// PATCH requires same permission as UPDATE
-		if admit.Handles(admission.Update) {
-			userInfo, _ := api.UserFrom(ctx)
-
-			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Update, userInfo))
-			if err != nil {
-				errorJSON(err, scope.Codec, w)
-				return
-			}
-		}
-
 		versionedObj, err := converter.ConvertToVersion(obj, scope.APIVersion)
 		if err != nil {
 			errorJSON(err, scope.Codec, w)
@@ -427,6 +416,17 @@ func PatchResource(r rest.Patcher, scope RequestScope, typer runtime.ObjectTyper
 		if err := checkName(obj, name, namespace, scope.Namer); err != nil {
 			errorJSON(err, scope.Codec, w)
 			return
+		}
+
+		// PATCH requires same permission as UPDATE
+		if admit.Handles(admission.Update) {
+			userInfo, _ := api.UserFrom(ctx)
+
+			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Update, userInfo))
+			if err != nil {
+				errorJSON(err, scope.Codec, w)
+				return
+			}
 		}
 
 		result, err := finishRequest(timeout, func() (runtime.Object, error) {
