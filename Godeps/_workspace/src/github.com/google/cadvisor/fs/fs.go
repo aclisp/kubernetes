@@ -85,6 +85,10 @@ func NewFsInfo(context Context) (FsInfo, error) {
 		if _, ok := partitions[mount.Source]; ok {
 			continue
 		}
+		// Ignore transient devices. #1048
+		if strings.HasPrefix(mount.Source, "/dev/mapper/docker-") {
+			continue
+		}
 		partitions[mount.Source] = partition{
 			mountpoint: mount.Mountpoint,
 			major:      uint(mount.Major),
@@ -208,7 +212,7 @@ func (self *RealFsInfo) GetFsInfoForPath(mountSet map[string]struct{}) ([]Fs, er
 				total, free, avail, err = getVfsStats(partition.mountpoint)
 			}
 			if err != nil {
-				glog.Errorf("Stat fs failed. Error: %v", err)
+				glog.Errorf("Stat fs failed. Error: %v. partition=%+v, device=%q", err, partition, device)
 			} else {
 				deviceSet[device] = struct{}{}
 				deviceInfo := DeviceInfo{
