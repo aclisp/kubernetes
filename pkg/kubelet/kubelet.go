@@ -51,6 +51,7 @@ import (
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/dockertools"
 	"k8s.io/kubernetes/pkg/kubelet/envvars"
+	"k8s.io/kubernetes/pkg/kubelet/hostportallocator"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 	"k8s.io/kubernetes/pkg/kubelet/network"
 	"k8s.io/kubernetes/pkg/kubelet/rkt"
@@ -982,7 +983,11 @@ func ensureHostsFile(fileName string, hostIP, hostName string) error {
 	return ioutil.WriteFile(fileName, buffer.Bytes(), 0644)
 }
 
-func makePortMappings(container *api.Container) (ports []kubecontainer.PortMapping) {
+func makePortMappings(container *api.Container, podContainerDir string) (ports []kubecontainer.PortMapping) {
+	allocator := hostportallocator.Allocator{
+		PodContainerDir: podContainerDir,
+	}
+	defer allocator.Done()
 	names := make(map[string]struct{})
 	for _, p := range container.Ports {
 		pm := kubecontainer.PortMapping{
@@ -1006,6 +1011,36 @@ func makePortMappings(container *api.Container) (ports []kubecontainer.PortMappi
 			glog.Warningf("Port name conflicted, %q is defined more than once", pm.Name)
 			continue
 		}
+
+		// Allocate random host port if it is zero. And do it only for PodInfraContainer.
+		if pm.HostPort == 0 && container.Name == dockertools.PodInfraContainerName {
+			loaded, err := allocator.LoadPortMapping(&pm)
+			if err != nil {
+				glog.Errorf("Failed to load port mapping %q from %q: %v", pm.Name, podContainerDir, err)
+				continue
+			}
+			if loaded {
+				glog.Warningf("Load previous port mapping %q from %q", pm.Name, podContainerDir)
+				ports = append(ports, pm)
+				names[pm.Name] = struct{}{}
+				continue
+			}
+
+			port, err := allocator.Allocate()
+			if err != nil {
+				glog.Errorf("Failed to allocate random host port for %q: %v", pm.Name, err)
+				continue
+			}
+			pm.HostPort = port
+
+			// Save this port mapping to podContainerDir.
+			// Because it should be reused on container crash.
+			if err = allocator.SavePortMapping(pm); err != nil {
+				glog.Errorf("Failed to save port mapping %q to %q: %v", pm.Name, podContainerDir, err)
+				continue
+			}
+		}
+
 		ports = append(ports, pm)
 		names[pm.Name] = struct{}{}
 	}
@@ -1023,7 +1058,14 @@ func (kl *Kubelet) GenerateRunContainerOptions(pod *api.Pod, container *api.Cont
 		return nil, fmt.Errorf("impossible: cannot find the mounted volumes for pod %q", kubecontainer.GetPodFullName(pod))
 	}
 
-	opts.PortMappings = makePortMappings(container)
+	podContainerDir := kl.getPodContainerDir(pod.UID, container.Name)
+	if err := os.MkdirAll(podContainerDir, 0750); err != nil {
+		glog.Errorf("Error on creating %q: %v", podContainerDir, err)
+	} else {
+		opts.PodContainerDir = podContainerDir
+	}
+
+	opts.PortMappings = makePortMappings(container, podContainerDir)
 	opts.Mounts, err = makeMounts(pod, kl.getPodDir(pod.UID), container, vol)
 	if err != nil {
 		return nil, err
@@ -1031,15 +1073,6 @@ func (kl *Kubelet) GenerateRunContainerOptions(pod *api.Pod, container *api.Cont
 	opts.Envs, err = kl.makeEnvironmentVariables(pod, container)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(container.TerminationMessagePath) != 0 {
-		p := kl.getPodContainerDir(pod.UID, container.Name)
-		if err := os.MkdirAll(p, 0750); err != nil {
-			glog.Errorf("Error on creating %q: %v", p, err)
-		} else {
-			opts.PodContainerDir = p
-		}
 	}
 
 	opts.DNS, opts.DNSSearch, err = kl.getClusterDNS(pod)
