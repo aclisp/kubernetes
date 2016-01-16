@@ -3557,7 +3557,7 @@ func TestMakePortMappings(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		actual := makePortMappings(tt.container)
+		actual := makePortMappings(tt.container, "/tmp/pods/a/containers/3")
 		if !reflect.DeepEqual(tt.expectedPortMappings, actual) {
 			t.Errorf("%d: Expected: %#v, saw: %#v", i, tt.expectedPortMappings, actual)
 		}

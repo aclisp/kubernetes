@@ -1577,7 +1577,8 @@ func (dm *DockerManager) runContainerInPod(pod *api.Pod, container *api.Containe
 	// we modify it when the pause container is created since it is the first container created in the pod since it holds
 	// the networking namespace.
 	if container.Name == PodInfraContainerName && utsMode != "host" {
-		err = addNDotsOption(containerInfo.ResolvConfPath)
+		// Disabled by huanghao
+		//err = addNDotsOption(containerInfo.ResolvConfPath)
 	}
 
 	return kubeletTypes.DockerID(id), err
