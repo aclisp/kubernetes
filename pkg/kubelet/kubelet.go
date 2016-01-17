@@ -983,11 +983,7 @@ func ensureHostsFile(fileName string, hostIP, hostName string) error {
 	return ioutil.WriteFile(fileName, buffer.Bytes(), 0644)
 }
 
-func makePortMappings(container *api.Container, podContainerDir string) (ports []kubecontainer.PortMapping) {
-	allocator := hostportallocator.Allocator{
-		PodContainerDir: podContainerDir,
-	}
-	defer allocator.Done()
+func makePortMappings(container *api.Container) (ports []kubecontainer.PortMapping) {
 	names := make(map[string]struct{})
 	for _, p := range container.Ports {
 		pm := kubecontainer.PortMapping{
@@ -1011,40 +1007,45 @@ func makePortMappings(container *api.Container, podContainerDir string) (ports [
 			glog.Warningf("Port name conflicted, %q is defined more than once", pm.Name)
 			continue
 		}
+		ports = append(ports, pm)
+		names[pm.Name] = struct{}{}
+	}
+	return
+}
 
+func allocateHostPorts(ports []kubecontainer.PortMapping, container *api.Container, podContainerDir string) {
+	allocator := hostportallocator.Allocator{
+		PodContainerDir: podContainerDir,
+	}
+	defer allocator.Done()
+	for i := range ports {
 		// Allocate random host port if it is zero. And do it only for PodInfraContainer.
-		if pm.HostPort == 0 && container.Name == dockertools.PodInfraContainerName {
-			loaded, err := allocator.LoadPortMapping(&pm)
+		if ports[i].HostPort == 0 && container.Name == dockertools.PodInfraContainerName {
+			loaded, err := allocator.LoadPortMapping(&ports[i])
 			if err != nil {
-				glog.Errorf("Failed to load port mapping %q from %q: %v", pm.Name, podContainerDir, err)
+				glog.Errorf("Failed to load port mapping %q from %q: %v", ports[i].Name, podContainerDir, err)
 				continue
 			}
 			if loaded {
-				glog.Warningf("Load previous port mapping %q from %q", pm.Name, podContainerDir)
-				ports = append(ports, pm)
-				names[pm.Name] = struct{}{}
+				glog.Warningf("Load previous port mapping %q from %q", ports[i].Name, podContainerDir)
 				continue
 			}
 
 			port, err := allocator.Allocate()
 			if err != nil {
-				glog.Errorf("Failed to allocate random host port for %q: %v", pm.Name, err)
+				glog.Errorf("Failed to allocate random host port for %q: %v", ports[i].Name, err)
 				continue
 			}
-			pm.HostPort = port
+			ports[i].HostPort = port
 
 			// Save this port mapping to podContainerDir.
 			// Because it should be reused on container crash.
-			if err = allocator.SavePortMapping(pm); err != nil {
-				glog.Errorf("Failed to save port mapping %q to %q: %v", pm.Name, podContainerDir, err)
+			if err = allocator.SavePortMapping(ports[i]); err != nil {
+				glog.Errorf("Failed to save port mapping %q to %q: %v", ports[i].Name, podContainerDir, err)
 				continue
 			}
 		}
-
-		ports = append(ports, pm)
-		names[pm.Name] = struct{}{}
 	}
-	return
 }
 
 // GenerateRunContainerOptions generates the RunContainerOptions, which can be used by
@@ -1065,7 +1066,9 @@ func (kl *Kubelet) GenerateRunContainerOptions(pod *api.Pod, container *api.Cont
 		opts.PodContainerDir = podContainerDir
 	}
 
-	opts.PortMappings = makePortMappings(container, podContainerDir)
+	opts.PortMappings = makePortMappings(container)
+	allocateHostPorts(opts.PortMappings, container, podContainerDir)
+
 	opts.Mounts, err = makeMounts(pod, kl.getPodDir(pod.UID), container, vol)
 	if err != nil {
 		return nil, err
@@ -2842,6 +2845,34 @@ func (kl *Kubelet) generatePodStatus(pod *api.Pod) (api.PodStatus, error) {
 				podStatus.PodIP = hostIP.String()
 			}
 		}
+	}
+
+	// Assemble port mappings into PodStatus.Message
+	containerName := dockertools.PodInfraContainerName
+	podContainerDir := kl.getPodContainerDir(pod.UID, containerName)
+	var ports []api.ContainerPort
+	// Docker only exports ports from the pod infra container.  Let's
+	// collect all of the relevant ports to know which are exported.
+	for _, container := range pod.Spec.Containers {
+		ports = append(ports, container.Ports...)
+	}
+	container := &api.Container{
+		Name:            containerName,
+		Ports:           ports,
+	}
+	portMappings := makePortMappings(container)
+	allocator := hostportallocator.Allocator{
+		PodContainerDir: podContainerDir,
+	}
+	var mappingInfo string
+	for _, pm := range portMappings {
+		if loaded, _ := allocator.LoadPortMapping(&pm); loaded {
+			mappingInfo += fmt.Sprintf("%d->%d,", pm.HostPort, pm.ContainerPort)
+		}
+	}
+	mappingInfo = strings.TrimSuffix(mappingInfo, ",")
+	if len(mappingInfo) != 0 {
+		podStatus.Message += fmt.Sprintf(" PortMapping(%s) ", mappingInfo)
 	}
 
 	return *podStatus, nil
