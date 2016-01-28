@@ -1013,7 +1013,7 @@ func makePortMappings(container *api.Container) (ports []kubecontainer.PortMappi
 	return
 }
 
-func allocateHostPorts(ports []kubecontainer.PortMapping, container *api.Container, podContainerDir string) {
+func allocateHostPorts(ports []kubecontainer.PortMapping, container *api.Container, podContainerDir string, pod *api.Pod) {
 	allocator := hostportallocator.Allocator{
 		PodContainerDir: podContainerDir,
 	}
@@ -1067,7 +1067,7 @@ func (kl *Kubelet) GenerateRunContainerOptions(pod *api.Pod, container *api.Cont
 	}
 
 	opts.PortMappings = makePortMappings(container)
-	allocateHostPorts(opts.PortMappings, container, podContainerDir)
+	allocateHostPorts(opts.PortMappings, container, podContainerDir, pod)
 
 	opts.Mounts, err = makeMounts(pod, kl.getPodDir(pod.UID), container, vol)
 	if err != nil {
@@ -1077,6 +1077,8 @@ func (kl *Kubelet) GenerateRunContainerOptions(pod *api.Pod, container *api.Cont
 	if err != nil {
 		return nil, err
 	}
+	opts.Envs = kl.appendPortMappingsToEnvs(opts.Envs, pod)
+	opts.Envs = kl.appendNodeNameToEnvs(opts.Envs, pod)
 
 	opts.DNS, opts.DNSSearch, err = kl.getClusterDNS(pod)
 	if err != nil {
@@ -1084,6 +1086,24 @@ func (kl *Kubelet) GenerateRunContainerOptions(pod *api.Pod, container *api.Cont
 	}
 
 	return opts, nil
+}
+
+func (kl *Kubelet) appendPortMappingsToEnvs(envs []kubecontainer.EnvVar, pod *api.Pod) []kubecontainer.EnvVar {
+	for _, pm := range kl.loadPodPortMappings(pod) {
+		envs = append(envs, kubecontainer.EnvVar{
+			Name: fmt.Sprintf("SIGMA_PORT_MAPPING_%s_%d", pm.Protocol, pm.ContainerPort),
+			Value: fmt.Sprintf("%d", pm.HostPort),
+		})
+	}
+	return envs
+}
+
+func (kl *Kubelet) appendNodeNameToEnvs(envs []kubecontainer.EnvVar, pod *api.Pod) []kubecontainer.EnvVar {
+	envs = append(envs, kubecontainer.EnvVar{
+		Name: "SIGMA_HOST_IP",
+		Value: pod.Spec.NodeName,
+	})
+	return envs
 }
 
 var masterServices = sets.NewString("kubernetes")
@@ -2847,6 +2867,12 @@ func (kl *Kubelet) generatePodStatus(pod *api.Pod) (api.PodStatus, error) {
 		}
 	}
 
+	kl.generatePodPortMappings(pod, podStatus)
+
+	return *podStatus, nil
+}
+
+func (kl *Kubelet) loadPodPortMappings(pod *api.Pod) (result []kubecontainer.PortMapping) {
 	// Assemble port mappings into PodStatus.Message
 	containerName := dockertools.PodInfraContainerName
 	podContainerDir := kl.getPodContainerDir(pod.UID, containerName)
@@ -2864,18 +2890,26 @@ func (kl *Kubelet) generatePodStatus(pod *api.Pod) (api.PodStatus, error) {
 	allocator := hostportallocator.Allocator{
 		PodContainerDir: podContainerDir,
 	}
-	var mappingInfo string
 	for _, pm := range portMappings {
 		if loaded, _ := allocator.LoadPortMapping(&pm); loaded {
-			mappingInfo += fmt.Sprintf("%d->%d,", pm.HostPort, pm.ContainerPort)
+			result = append(result, pm)
 		}
+	}
+	return
+}
+
+func (kl *Kubelet) generatePodPortMappings(pod *api.Pod, podStatus *api.PodStatus) {
+	var mappingInfo string
+	for _, pm := range kl.loadPodPortMappings(pod) {
+		mappingInfo += fmt.Sprintf("%d->%d/%s,", pm.HostPort, pm.ContainerPort, pm.Protocol)
 	}
 	mappingInfo = strings.TrimSuffix(mappingInfo, ",")
 	if len(mappingInfo) != 0 {
-		podStatus.Message += fmt.Sprintf(" PortMapping(%s) ", mappingInfo)
+		if len(podStatus.Message) != 0 {
+			podStatus.Message += " "
+		}
+		podStatus.Message += fmt.Sprintf("PortMapping(%s)", mappingInfo)
 	}
-
-	return *podStatus, nil
 }
 
 // Returns logs of current machine.
