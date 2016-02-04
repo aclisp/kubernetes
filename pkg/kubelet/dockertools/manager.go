@@ -40,6 +40,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/client/record"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+	"k8s.io/kubernetes/pkg/kubelet/fixer"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 	"k8s.io/kubernetes/pkg/kubelet/network"
@@ -1613,6 +1614,9 @@ func (dm *DockerManager) createPodInfraContainer(pod *api.Pod) (kubeletTypes.Doc
 	if pod.Spec.HostNetwork {
 		netNamespace = "host"
 	} else {
+		// yy fix
+		fixer.EnsureDockerRules()
+
 		// Docker only exports ports from the pod infra container.  Let's
 		// collect all of the relevant ports and export them.
 		for _, container := range pod.Spec.Containers {
