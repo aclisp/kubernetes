@@ -312,3 +312,56 @@ func TestPluginBackCompat(t *testing.T) {
 		t.Errorf("Got unexpected path: %s", volPath)
 	}
 }
+
+func TestGetPathDisk(t *testing.T) {
+	basePath := "/tmp/disk"
+	disks := []string{
+		path.Join(basePath, "data1"),
+		path.Join(basePath, "data2"),
+	}
+	for _, disk := range disks {
+		if err := os.MkdirAll(disk, perm); err != nil {
+			t.Fatalf("Can not make dir %q: %v", disk, err)
+		}
+	}
+
+	ed := &emptyDir{
+		pod:     &api.Pod{
+			ObjectMeta: api.ObjectMeta{
+				UID:       types.UID("poduid-1"),
+				Namespace: "podnamespace",
+				Name:      "podname",
+			},
+		},
+		volName: "my-data",
+		medium:  storageMediumDisk,
+	}
+	volPath, err := ed.getPathDisk(basePath)
+	if volPath != path.Join(disks[0], sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName) {
+		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
+	}
+	if err := os.MkdirAll(volPath, perm); err != nil {
+		t.Fatalf("Can not make dir %q: %v", volPath, err)
+	}
+
+	ed.pod.UID = types.UID("poduid-2")
+	volPath, err = ed.getPathDisk(basePath)
+	if volPath != path.Join(disks[1], sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName) {
+		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
+	}
+	if err := os.MkdirAll(volPath, perm); err != nil {
+		t.Fatalf("Can not make dir %q: %v", volPath, err)
+	}
+
+	ed.pod.UID = types.UID("poduid-3")
+	volPath, err = ed.getPathDisk(basePath)
+	if _, ok := err.(*diskExhausted); !ok {
+		t.Fatalf("Shall be diskExhausted: %v", err)
+	}
+
+	ed.pod.UID = types.UID("poduid-2")
+	volPath, err = ed.getPathDisk(basePath)
+	if volPath != path.Join(disks[1], sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName) {
+		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
+	}
+}
