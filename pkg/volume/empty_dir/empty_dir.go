@@ -18,8 +18,10 @@ package empty_dir
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
+	"regexp"
 
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
@@ -52,6 +54,10 @@ var _ volume.VolumePlugin = &emptyDirPlugin{}
 
 const (
 	emptyDirPluginName = "kubernetes.io/empty-dir"
+	sigmaDiskBasePath  = "/"
+	sigmaDiskAllocated = "sigma-allocated"
+	storageMediumDisk  = "disk"
+	invalidPathDiskExhausted = "<diskExhausted>"
 )
 
 func (plugin *emptyDirPlugin) Init(host volume.VolumeHost) {
@@ -144,6 +150,11 @@ func (ed *emptyDir) SetUp() error {
 
 // SetUpAt creates new directory.
 func (ed *emptyDir) SetUpAt(dir string) error {
+
+	if dir == invalidPathDiskExhausted {
+		return fmt.Errorf("disk exhausted")
+	}
+
 	notMnt, err := ed.mounter.IsLikelyNotMountPoint(dir)
 	// Getting an os.IsNotExist err from is a contingency; the directory
 	// may not exist yet, in which case, setup should run.
@@ -160,6 +171,8 @@ func (ed *emptyDir) SetUpAt(dir string) error {
 			return nil
 		} else if ed.medium == api.StorageMediumDefault {
 			return nil
+		} else if ed.medium == storageMediumDisk {
+			return nil
 		}
 	}
 
@@ -174,6 +187,8 @@ func (ed *emptyDir) SetUpAt(dir string) error {
 		err = ed.setupDir(dir, securityContext)
 	case api.StorageMediumMemory:
 		err = ed.setupTmpfs(dir, securityContext)
+	case storageMediumDisk:
+		err = ed.setupDir(dir, securityContext)
 	default:
 		err = fmt.Errorf("unknown storage medium %q", ed.medium)
 	}
@@ -268,8 +283,61 @@ func (ed *emptyDir) setupDir(dir, selinuxContext string) error {
 }
 
 func (ed *emptyDir) GetPath() string {
+	if ed.medium == storageMediumDisk {
+		path, err := ed.getPathDisk(sigmaDiskBasePath)
+		if err != nil {
+			return invalidPathDiskExhausted
+		}
+		return path
+	}
+
 	name := emptyDirPluginName
 	return ed.plugin.host.GetPodVolumeDir(ed.pod.UID, util.EscapeQualifiedNameForDisk(name), ed.volName)
+}
+
+type diskExhausted struct {
+	msg   string // description of error
+	alloc int    // number of allocated disks
+}
+
+func (e *diskExhausted) Error() string {
+	return fmt.Sprintf("Disk Exhausted: allocated %d: %s", e.alloc, e.msg)
+}
+
+func (ed *emptyDir) getPathDisk(basePath string) (string, error) {
+	var disks []string
+	dirs, err := ioutil.ReadDir(basePath)
+	if err != nil {
+		return "", err
+	}
+	for _, dir := range dirs {
+		matched, err := regexp.MatchString("^data[1-9]$", dir.Name())
+		if err != nil {
+			return "", err
+		}
+		if matched {
+			disks = append(disks, path.Join(basePath, dir.Name()))
+		}
+	}
+
+	// check if the PodVolumeDir already exists (created previously)
+	for _, disk := range disks {
+		podVolumesDir := path.Join(disk, sigmaDiskAllocated, string(ed.pod.UID), "volumes")
+		fi, err := os.Stat(podVolumesDir)
+		if err == nil && fi.IsDir() { // Found!
+			return path.Join(podVolumesDir, ed.volName), nil
+		}
+	}
+
+	// allocate a disk only if there is no dir'sigmaDiskAllocated'
+	for _, disk := range disks {
+		if _, err := os.Stat(path.Join(disk, sigmaDiskAllocated)); os.IsNotExist(err) {
+			return path.Join(disk, sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName), nil
+		}
+	}
+
+	// disk exhausted
+	return "", &diskExhausted{msg: fmt.Sprintf("%s_%s", ed.pod.Namespace, ed.pod.Name), alloc: len(disks)}
 }
 
 // TearDown simply discards everything in the directory.
@@ -279,6 +347,11 @@ func (ed *emptyDir) TearDown() error {
 
 // TearDownAt simply discards everything in the directory.
 func (ed *emptyDir) TearDownAt(dir string) error {
+
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil
+	}
+
 	// Figure out the medium.
 	medium, isMnt, err := ed.mountDetector.GetMountMedium(dir)
 	if err != nil {
