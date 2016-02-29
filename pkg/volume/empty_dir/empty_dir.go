@@ -56,7 +56,7 @@ const (
 	emptyDirPluginName = "kubernetes.io/empty-dir"
 	sigmaDiskBasePath  = "/"
 	sigmaDiskAllocated = "sigma-allocated"
-	storageMediumDisk  = "disk"
+	storageMediumDisk  = "Disk"
 	invalidPathDiskExhausted = "<diskExhausted>"
 )
 
@@ -304,6 +304,14 @@ func (e *diskExhausted) Error() string {
 	return fmt.Sprintf("Disk Exhausted: allocated %d: %s", e.alloc, e.msg)
 }
 
+func (ed *emptyDir) getPodFullName() string {
+	return ed.pod.Namespace + "_" + ed.pod.Name
+}
+
+func (ed *emptyDir) getPodVolumesDir(disk string) string {
+	return path.Join(disk, sigmaDiskAllocated, ed.getPodFullName(), "volumes")
+}
+
 func (ed *emptyDir) getPathDisk(basePath string) (string, error) {
 	var disks []string
 	dirs, err := ioutil.ReadDir(basePath)
@@ -322,7 +330,7 @@ func (ed *emptyDir) getPathDisk(basePath string) (string, error) {
 
 	// check if the PodVolumeDir already exists (created previously)
 	for _, disk := range disks {
-		podVolumesDir := path.Join(disk, sigmaDiskAllocated, string(ed.pod.UID), "volumes")
+		podVolumesDir := ed.getPodVolumesDir(disk)
 		fi, err := os.Stat(podVolumesDir)
 		if err == nil && fi.IsDir() { // Found!
 			return path.Join(podVolumesDir, ed.volName), nil
@@ -332,12 +340,13 @@ func (ed *emptyDir) getPathDisk(basePath string) (string, error) {
 	// allocate a disk only if there is no dir'sigmaDiskAllocated'
 	for _, disk := range disks {
 		if _, err := os.Stat(path.Join(disk, sigmaDiskAllocated)); os.IsNotExist(err) {
-			return path.Join(disk, sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName), nil
+			podVolumesDir := ed.getPodVolumesDir(disk)
+			return path.Join(podVolumesDir, ed.volName), nil
 		}
 	}
 
 	// disk exhausted
-	return "", &diskExhausted{msg: fmt.Sprintf("%s_%s", ed.pod.Namespace, ed.pod.Name), alloc: len(disks)}
+	return "", &diskExhausted{msg: ed.getPodFullName(), alloc: len(disks)}
 }
 
 // TearDown simply discards everything in the directory.
