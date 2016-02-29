@@ -329,39 +329,57 @@ func TestGetPathDisk(t *testing.T) {
 		pod:     &api.Pod{
 			ObjectMeta: api.ObjectMeta{
 				UID:       types.UID("poduid-1"),
-				Namespace: "podnamespace",
-				Name:      "podname",
+				Namespace: "podnamespace-1",
+				Name:      "podname-1",
 			},
 		},
 		volName: "my-data",
 		medium:  storageMediumDisk,
 	}
 	volPath, err := ed.getPathDisk(basePath)
-	if volPath != path.Join(disks[0], sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName) {
+	if volPath != path.Join(ed.getPodVolumesDir(disks[0]), ed.volName) {
 		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
 	}
 	if err := os.MkdirAll(volPath, perm); err != nil {
 		t.Fatalf("Can not make dir %q: %v", volPath, err)
 	}
 
-	ed.pod.UID = types.UID("poduid-2")
+	ed.pod = &api.Pod{
+		ObjectMeta: api.ObjectMeta{
+			UID:       types.UID("poduid-2"),
+			Namespace: "podnamespace-2",
+			Name:      "podname-2",
+		},
+	}
 	volPath, err = ed.getPathDisk(basePath)
-	if volPath != path.Join(disks[1], sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName) {
+	if volPath != path.Join(ed.getPodVolumesDir(disks[1]), ed.volName) {
 		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
 	}
 	if err := os.MkdirAll(volPath, perm); err != nil {
 		t.Fatalf("Can not make dir %q: %v", volPath, err)
 	}
 
-	ed.pod.UID = types.UID("poduid-3")
+	ed.pod = &api.Pod{
+		ObjectMeta: api.ObjectMeta{
+			UID:       types.UID("poduid-3"),
+			Namespace: "podnamespace-3",
+			Name:      "podname-3",
+		},
+	}
 	volPath, err = ed.getPathDisk(basePath)
 	if _, ok := err.(*diskExhausted); !ok {
 		t.Fatalf("Shall be diskExhausted: %v", err)
 	}
 
-	ed.pod.UID = types.UID("poduid-2")
+	ed.pod = &api.Pod{
+		ObjectMeta: api.ObjectMeta{
+			UID:       types.UID("poduid-2"),
+			Namespace: "podnamespace-2",
+			Name:      "podname-2",
+		},
+	}
 	volPath, err = ed.getPathDisk(basePath)
-	if volPath != path.Join(disks[1], sigmaDiskAllocated, string(ed.pod.UID), "volumes", ed.volName) {
+	if volPath != path.Join(ed.getPodVolumesDir(disks[1]), ed.volName) {
 		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
 	}
 }
