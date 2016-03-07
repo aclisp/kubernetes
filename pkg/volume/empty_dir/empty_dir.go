@@ -22,6 +22,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strings"
 
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
@@ -56,6 +57,8 @@ const (
 	emptyDirPluginName = "kubernetes.io/empty-dir"
 	sigmaDiskBasePath  = "/"
 	sigmaDiskAllocated = "sigma-allocated"
+	sigmaDiskBackup    = "sigma-backup"
+	sigmaDiskMetaFile  = "disk"
 	storageMediumDisk  = "Disk"
 	invalidPathDiskExhausted = "<diskExhausted>"
 )
@@ -188,16 +191,40 @@ func (ed *emptyDir) SetUpAt(dir string) error {
 	case api.StorageMediumMemory:
 		err = ed.setupTmpfs(dir, securityContext)
 	case storageMediumDisk:
-		err = ed.setupDir(dir, securityContext)
+		err = ed.setupDisk(dir, securityContext)
 	default:
 		err = fmt.Errorf("unknown storage medium %q", ed.medium)
 	}
 
 	if err == nil {
 		volumeutil.SetReady(ed.getMetaDir())
+		if ed.medium == storageMediumDisk {
+			saveDiskPath(ed.getMetaDir(), dir)
+		}
 	}
 
 	return err
+}
+
+func saveDiskPath(metadir, diskpath string) error {
+	if err := os.MkdirAll(metadir, 0750); err != nil && !os.IsExist(err) {
+		glog.Errorf("Can't mkdir %s: %v", metadir, err)
+		return err
+	}
+
+	metafile := path.Join(metadir, sigmaDiskMetaFile)
+	if err := ioutil.WriteFile(metafile, []byte(diskpath), 0666); err != nil {
+		glog.Errorf("Can't save disk path %s: %v", metafile, err)
+		return err
+	}
+
+	return nil
+}
+
+func loadDiskPath(metadir string) (diskpath string, err error) {
+	metafile := path.Join(metadir, sigmaDiskMetaFile)
+	bytes, err := ioutil.ReadFile(metafile)
+	return string(bytes), err
 }
 
 func (ed *emptyDir) IsReadOnly() bool {
@@ -282,6 +309,19 @@ func (ed *emptyDir) setupDir(dir, selinuxContext string) error {
 	return nil
 }
 
+func (ed *emptyDir) setupDisk(dir, selinuxContext string) error {
+	if err := ed.setupDir(dir, selinuxContext); err != nil {
+		return err
+	}
+	// We also need to setup the default path, so Kubelet.getPodVolumesFromDisk is aware of this volume.
+	name := emptyDirPluginName
+	path := ed.plugin.host.GetPodVolumeDir(ed.pod.UID, util.EscapeQualifiedNameForDisk(name), ed.volName)
+	if err := ed.setupDir(path, selinuxContext); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (ed *emptyDir) GetPath() string {
 	if ed.medium == storageMediumDisk {
 		path, err := ed.getPathDisk(sigmaDiskBasePath)
@@ -356,9 +396,13 @@ func (ed *emptyDir) TearDown() error {
 
 // TearDownAt simply discards everything in the directory.
 func (ed *emptyDir) TearDownAt(dir string) error {
-
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return nil
+	// Figure out the medium if it is disk.
+	diskpath, err := loadDiskPath(ed.getMetaDir())
+	if err == nil {
+		return ed.teardownDisk(diskpath, dir)
+	}
+	if !os.IsNotExist(err) {
+		return err
 	}
 
 	// Figure out the medium.
@@ -371,6 +415,23 @@ func (ed *emptyDir) TearDownAt(dir string) error {
 		return ed.teardownTmpfs(dir)
 	}
 	// assume StorageMediumDefault
+	return ed.teardownDefault(dir)
+}
+
+func (ed *emptyDir) teardownDisk(diskpath, dir string) error {
+	// dir = basePath + disk + sigmaDiskAllocated + podFullName + volumes + volName
+	if _, err := os.Stat(diskpath); err == nil {
+		// Backup
+		n := strings.Index(diskpath, sigmaDiskAllocated)
+		if n == -1 {
+			return fmt.Errorf("disk storage requested, but disk path is invalid: %q", diskpath)
+		}
+		tmpDir, err := volume.RenameDirectory(path.Join(diskpath[:n], sigmaDiskAllocated), sigmaDiskBackup)
+		if err != nil {
+			return err
+		}
+		glog.Warningf("Orphaned disk volume %q was moved to %q", ed.pod.UID, tmpDir)
+	}
 	return ed.teardownDefault(dir)
 }
 
