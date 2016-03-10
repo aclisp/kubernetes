@@ -410,9 +410,6 @@ func (nc *NodeController) monitorNodeStatus() error {
 				"Skipping - no pods will be evicted.", node.Name)
 			continue
 		}
-		if readyCondition != nil && readyCondition.Status == api.ConditionUnknown  {
-			nc.markPodsNeedMigration(node.Name)
-		}
 
 		decisionTimestamp := nc.now()
 
@@ -439,6 +436,11 @@ func (nc *NodeController) monitorNodeStatus() error {
 			// Report node event.
 			if readyCondition.Status != api.ConditionTrue && lastReadyCondition.Status == api.ConditionTrue {
 				nc.recordNodeStatusChange(node, "NodeNotReady")
+			}
+
+			if readyCondition.Status != api.ConditionTrue {
+				// In this case, could be container runtime is down; but kubelet is working.
+				nc.markPodsNeedMigration(node.Name)
 			}
 
 			// Check with the cloud provider to see if the node still exists. If it
@@ -697,7 +699,17 @@ func (nc *NodeController) cancelPodEviction(nodeName string) bool {
 
 // markPodsNeedMigration will update all pods' phase to NeedMigration immediately after NodeReady==ConditionUnknown
 func (nc *NodeController) markPodsNeedMigration(nodeName string) {
-	pods, err := nc.kubeClient.Pods(api.NamespaceAll).List(labels.Everything(), fields.OneTermEqualSelector(client.PodHost, nodeName))
+	selector, err := fields.ParseSelector(strings.Join([]string{
+		client.PodHost + "=" + nodeName,
+		client.PodStatus + "!=" + string(api.PodUnknown),
+		client.PodStatus + "!=" + string(api.PodSucceeded),
+		client.PodStatus + "!=" + string(api.PodFailed),
+	}, ","))
+	if err != nil {
+		panic("markPodsNeedMigrationSelector must compile: " + err.Error())
+	}
+
+	pods, err := nc.kubeClient.Pods(api.NamespaceAll).List(labels.Everything(), selector)
 	if err != nil {
 		return
 	}
