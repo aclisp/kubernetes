@@ -410,6 +410,9 @@ func (nc *NodeController) monitorNodeStatus() error {
 				"Skipping - no pods will be evicted.", node.Name)
 			continue
 		}
+		if readyCondition != nil && readyCondition.Status == api.ConditionUnknown  {
+			nc.markPodsNeedMigration(node.Name)
+		}
 
 		decisionTimestamp := nc.now()
 
@@ -690,6 +693,35 @@ func (nc *NodeController) cancelPodEviction(nodeName string) bool {
 		return true
 	}
 	return false
+}
+
+// markPodsNeedMigration will update all pods' phase to NeedMigration immediately after NodeReady==ConditionUnknown
+func (nc *NodeController) markPodsNeedMigration(nodeName string) {
+	pods, err := nc.kubeClient.Pods(api.NamespaceAll).List(labels.Everything(), fields.OneTermEqualSelector(client.PodHost, nodeName))
+	if err != nil {
+		return
+	}
+
+	if len(pods.Items) > 0 {
+		nc.recordNodeEvent(nodeName, "MarkingAllPods", fmt.Sprintf("Marking all Pods from Node %v.", nodeName))
+	}
+
+	for _, pod := range pods.Items {
+		// Defensive check, also needed for tests.
+		if pod.Spec.NodeName != nodeName {
+			continue
+		}
+		// if the pod has already been deleted, ignore it
+		if pod.DeletionGracePeriodSeconds != nil {
+			continue
+		}
+
+		glog.V(2).Infof("Starting marking of pod %v", pod.Name)
+		nc.recorder.Eventf(&pod, "NodeControllerEviction", "Marking for migration Pod %s from Node %s", pod.Name, nodeName)
+		pod.Status.Phase = api.PodUnknown
+		pod.Status.Reason = "NeedMigration"
+		nc.kubeClient.Pods(pod.Namespace).UpdateStatus(&pod)
+	}
 }
 
 // deletePods will delete all pods from master running on given node, and return true
