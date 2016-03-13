@@ -441,6 +441,8 @@ func (nc *NodeController) monitorNodeStatus() error {
 			if readyCondition.Status != api.ConditionTrue {
 				// In this case, could be container runtime is down; but kubelet is working.
 				nc.markPodsNeedMigration(node.Name)
+			} else {
+				nc.unmarkPodsNeedMigration(node.Name)
 			}
 
 			// Check with the cloud provider to see if the node still exists. If it
@@ -732,6 +734,46 @@ func (nc *NodeController) markPodsNeedMigration(nodeName string) {
 		nc.recorder.Eventf(&pod, "NodeControllerEviction", "Marking for migration Pod %s from Node %s", pod.Name, nodeName)
 		pod.Status.Phase = api.PodUnknown
 		pod.Status.Reason = "NeedMigration"
+		nc.kubeClient.Pods(pod.Namespace).UpdateStatus(&pod)
+	}
+}
+
+// unmarkPodsNeedMigration does the reverse of markPodsNeedMigration
+func (nc *NodeController) unmarkPodsNeedMigration(nodeName string) {
+	selector, err := fields.ParseSelector(strings.Join([]string{
+		client.PodHost + "=" + nodeName,
+		client.PodStatus + "=" + string(api.PodUnknown),
+	}, ","))
+	if err != nil {
+		panic("unmarkPodsNeedMigrationSelector must compile: " + err.Error())
+	}
+
+	pods, err := nc.kubeClient.Pods(api.NamespaceAll).List(labels.Everything(), selector)
+	if err != nil {
+		return
+	}
+
+	if len(pods.Items) > 0 {
+		nc.recordNodeEvent(nodeName, "UnmarkingAllPods", fmt.Sprintf("Unmarking all Pods from Node %v.", nodeName))
+	}
+
+	for _, pod := range pods.Items {
+		// Defensive check, also needed for tests.
+		if pod.Spec.NodeName != nodeName {
+			continue
+		}
+		// if the pod has already been deleted, ignore it
+		if pod.DeletionGracePeriodSeconds != nil {
+			continue
+		}
+		if pod.Status.Reason != "NeedMigration" {
+			continue
+		}
+
+		glog.V(2).Infof("Starting unmarking of pod %v", pod.Name)
+		nc.recorder.Eventf(&pod, "NodeControllerEviction", "Unmarking for migration Pod %s from Node %s", pod.Name, nodeName)
+		pod.Status.Phase = api.PodRunning
+		pod.Status.Reason = ""
 		nc.kubeClient.Pods(pod.Namespace).UpdateStatus(&pod)
 	}
 }
