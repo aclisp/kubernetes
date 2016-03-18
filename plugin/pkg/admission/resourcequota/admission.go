@@ -169,7 +169,7 @@ func (q *quota) Admit(a admission.Attributes) (err error) {
 // Return an error if the operation should not pass admission control
 func IncrementUsage(a admission.Attributes, status *api.ResourceQuotaStatus, client client.Interface) (bool, error) {
 	var errs []error
-	dirty := true
+	dirty := false
 	set := map[api.ResourceName]bool{}
 	for k := range status.Hard {
 		set[k] = true
@@ -189,6 +189,7 @@ func IncrementUsage(a admission.Attributes, status *api.ResourceQuotaStatus, cli
 				dirty = false
 			} else {
 				status.Used[resourceName] = *resource.NewQuantity(used.Value()+int64(1), resource.DecimalSI)
+				dirty = true
 			}
 		}
 	}
@@ -256,6 +257,7 @@ func IncrementUsage(a admission.Attributes, status *api.ResourceQuotaStatus, cli
 				dirty = false
 			} else {
 				status.Used[resourceName] = *newUsage
+				dirty = true
 			}
 
 		}
