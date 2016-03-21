@@ -1,6 +1,6 @@
 # build the hyperkube image.
 
-VERSION=v1.1.5
+VERSION=v1.1.8.1
 
 all:
 	cp /root/Gopath/bin/hyperkube .

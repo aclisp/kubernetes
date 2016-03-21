@@ -37,6 +37,10 @@ func Parse(gitversion string) (semver.Version, error) {
 		}
 		return unicode.IsSpace(ch)
 	})
+	// trim trailing build meta data "+$Format:%h$"
+	if buildIndex := strings.IndexRune(gitversion, '+'); buildIndex != -1 {
+		gitversion = gitversion[:buildIndex]
+	}
 
 	return semver.Make(gitversion)
 }
