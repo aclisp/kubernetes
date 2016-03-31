@@ -1147,12 +1147,14 @@ func ValidatePodUpdate(newPod, oldPod *api.Pod) errs.ValidationErrorList {
 	for ix, container := range pod.Spec.Containers {
 		container.Image = oldPod.Spec.Containers[ix].Image
 		container.Resources = oldPod.Spec.Containers[ix].Resources
+		container.Env = oldPod.Spec.Containers[ix].Env
+		container.ImagePullPolicy = oldPod.Spec.Containers[ix].ImagePullPolicy
 		newContainers = append(newContainers, container)
 	}
 	pod.Spec.Containers = newContainers
 	if !api.Semantic.DeepEqual(pod.Spec, oldPod.Spec) {
 		//TODO: Pinpoint the specific field that causes the invalid error after we have strategic merge diff
-		allErrs = append(allErrs, errs.NewFieldInvalid("spec", "content of spec is not printed out, please refer to the \"details\"", "may not update fields other than container.image"))
+		allErrs = append(allErrs, errs.NewFieldInvalid("spec", "content of spec is not printed out, please refer to the \"details\"", "may not update fields other than container.(image|resources|env|imagePullPolicy)"))
 	}
 
 	newPod.Status = oldPod.Status
