@@ -370,7 +370,11 @@ func (dm *DockerManager) inspectContainer(dockerID, containerName, tPath string,
 		// In that case, the container is oom killed, but the exit
 		// code could be 0.
 		if inspectResult.State.OOMKilled {
-			reason = "OOMKilled"
+			reason = "Killed"  // HH: It is always OOMKilled when killing the process or changing the image.
+			message = inspectResult.State.Error
+		} else if inspectResult.State.ExitCode == 0 {
+			reason = "Completed"
+			message = inspectResult.State.Error
 		} else {
 			reason = "Error"
 			message = inspectResult.State.Error
