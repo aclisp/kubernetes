@@ -1872,7 +1872,13 @@ func (dm *DockerManager) SyncPod(pod *api.Pod, runningPod kubecontainer.Pod, pod
 	}
 
 	// Start everything
-	for idx := range containerChanges.ContainersToStart {
+	// Need to sort the index, so that container0 starts at last
+	var keys []int
+	for k := range containerChanges.ContainersToStart {
+		keys = append(keys, k)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(keys)))
+	for _, idx := range keys {
 		container := &pod.Spec.Containers[idx]
 
 		// containerChanges.StartInfraContainer causes the containers to be restarted for config reasons
