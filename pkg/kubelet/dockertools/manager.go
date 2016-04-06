@@ -723,7 +723,7 @@ func (dm *DockerManager) runContainer(
 			Image:        container.Image,
 			// Memory and CPU are set here for older versions of Docker (pre-1.6).
 			Memory:     memoryLimit,
-			MemorySwap: -1,
+			MemorySwap: memoryLimit,
 			CPUShares:  cpuShares,
 			WorkingDir: container.WorkingDir,
 			Labels:     labels,
@@ -781,7 +781,7 @@ func (dm *DockerManager) runContainer(
 		PidMode:      pidMode,
 		// Memory and CPU are set here for newer versions of Docker (1.6+).
 		Memory:     memoryLimit,
-		MemorySwap: -1,
+		MemorySwap: memoryLimit,
 		CPUShares:  cpuShares,
 	}
 
@@ -1411,6 +1411,15 @@ func (dm *DockerManager) killContainer(containerID types.UID, container *api.Con
 	}
 
 	dm.readinessManager.RemoveReadiness(ID)
+
+	// Record this killing in termination log
+	if inspectResult, err := dm.client.InspectContainer(ID); err == nil &&
+		inspectResult != nil && container != nil && container.TerminationMessagePath != "" {
+		path, found := inspectResult.Volumes[container.TerminationMessagePath]
+		if found {
+			ioutil.WriteFile(path, []byte("Killed by kubelet (possibly due to upgrade or downgrade)"), 0644)
+		}
+	}
 
 	// always give containers a minimal shutdown window to avoid unnecessary SIGKILLs
 	if gracePeriod < minimumGracePeriodInSeconds {
