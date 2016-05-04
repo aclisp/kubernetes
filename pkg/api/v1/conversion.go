@@ -19,6 +19,7 @@ package v1
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/conversion"
@@ -64,9 +65,11 @@ func addConversionFuncs() {
 				// This is for backwards compatibility with old v1 clients which send spec.host
 			case "spec.host":
 				return "spec.nodeName", value, nil
-			default:
-				return "", "", fmt.Errorf("field label not supported: %s", label)
 			}
+			if strings.HasPrefix(label, "metadata.annotations.") {
+				return "metadata.annotations", value, nil
+			}
+			return "", "", fmt.Errorf("field label not supported: %s", label)
 		})
 	if err != nil {
 		// If one of the conversion functions is malformed, detect it immediately.

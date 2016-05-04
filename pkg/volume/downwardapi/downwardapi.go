@@ -163,6 +163,8 @@ func (d *downwardAPIVolume) collectData() (map[string]string, error) {
 		if values, err := fieldpath.ExtractFieldPathAsString(d.pod, fieldReference); err != nil {
 			glog.Errorf("Unable to extract field %s: %s", fieldReference, err.Error())
 			errlist = append(errlist, err)
+		} else if strings.HasPrefix(fieldReference, "metadata.annotations.") {
+			data[fileName] = values
 		} else {
 			data[fileName] = sortLines(values)
 		}

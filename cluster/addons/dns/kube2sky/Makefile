@@ -5,7 +5,7 @@
 .PHONY: all kube2sky container push clean test
 
 TAG = 1.11
-PREFIX = gcr.io/google_containers
+PREFIX = sigmas
 
 all: container
 
@@ -16,7 +16,7 @@ container: kube2sky
 	docker build -t $(PREFIX)/kube2sky:$(TAG) .
 
 push:
-	gcloud docker push $(PREFIX)/kube2sky:$(TAG)
+	docker push $(PREFIX)/kube2sky:$(TAG)
 
 clean:
 	rm -f kube2sky

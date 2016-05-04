@@ -4,10 +4,10 @@ skydns:
 	CGO_ENABLED=0 go build -a -installsuffix cgo --ldflags '-w' github.com/skynetservices/skydns
 
 container: skydns
-	sudo docker build -t gcr.io/google_containers/skydns .
+	sudo docker build -t sigmas/skydns .
 
 push:
-	sudo gcloud docker push gcr.io/google_containers/skydns
+	sudo docker push sigmas/skydns
 
 clean:
 	rm -f skydns
