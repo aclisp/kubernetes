@@ -18,6 +18,7 @@ package fieldpath
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/kubernetes/pkg/api/meta"
 )
@@ -54,6 +55,15 @@ func ExtractFieldPathAsString(obj interface{}, fieldPath string) (string, error)
 		return accessor.Name(), nil
 	case "metadata.namespace":
 		return accessor.Namespace(), nil
+	}
+
+	if strings.HasPrefix(fieldPath, "metadata.annotations.") {
+		k := strings.TrimPrefix(fieldPath, "metadata.annotations.")
+		v, ok := accessor.Annotations()[k]
+		if !ok {
+			return "", fmt.Errorf("Not exist fieldPath: %v", fieldPath)
+		}
+		return v, nil
 	}
 
 	return "", fmt.Errorf("Unsupported fieldPath: %v", fieldPath)
