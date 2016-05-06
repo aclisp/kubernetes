@@ -1020,27 +1020,28 @@ func allocateHostPorts(ports []kubecontainer.PortMapping, container *api.Contain
 	defer allocator.Done()
 	for i := range ports {
 		// Allocate random host port if it is zero. And do it only for PodInfraContainer.
-		if ports[i].HostPort == 0 && container.Name == dockertools.PodInfraContainerName {
-			loaded, err := allocator.LoadPortMapping(&ports[i])
-			if err != nil {
-				glog.Errorf("Failed to load port mapping %q from %q: %v", ports[i].Name, podContainerDir, err)
-				continue
-			}
-			if loaded {
-				glog.Warningf("Load previous port mapping %q from %q", ports[i].Name, podContainerDir)
-				continue
-			}
+		if container.Name == dockertools.PodInfraContainerName {
+			if ports[i].HostPort == 0 {
+				loaded, err := allocator.LoadPortMapping(&ports[i])
+				if err != nil {
+					glog.Errorf("Failed to load port mapping %q from %q: %v", ports[i].Name, podContainerDir, err)
+					continue
+				}
+				if loaded {
+					glog.Warningf("Load previous port mapping %q from %q", ports[i].Name, podContainerDir)
+					continue
+				}
 
-			port, err := allocator.Allocate()
-			if err != nil {
-				glog.Errorf("Failed to allocate random host port for %q: %v", ports[i].Name, err)
-				continue
+				port, err := allocator.Allocate()
+				if err != nil {
+					glog.Errorf("Failed to allocate random host port for %q: %v", ports[i].Name, err)
+					continue
+				}
+				ports[i].HostPort = port
 			}
-			ports[i].HostPort = port
-
 			// Save this port mapping to podContainerDir.
 			// Because it should be reused on container crash.
-			if err = allocator.SavePortMapping(ports[i]); err != nil {
+			if err := allocator.SavePortMapping(ports[i]); err != nil {
 				glog.Errorf("Failed to save port mapping %q to %q: %v", ports[i].Name, podContainerDir, err)
 				continue
 			}
