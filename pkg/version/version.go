@@ -37,8 +37,8 @@ func Get() Info {
 	return Info{
 		Major:        gitMajor,
 		Minor:        gitMinor,
-		GitVersion:   gitVersion,
-		GitCommit:    gitCommit,
+		GitVersion:   trimBuildMeta(gitVersion),
+		GitCommit:    "homerh",
 		GitTreeState: gitTreeState,
 	}
 }

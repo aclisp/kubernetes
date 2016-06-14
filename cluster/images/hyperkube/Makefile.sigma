@@ -1,0 +1,46 @@
+# Copyright 2016 The Kubernetes Authors All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Build the hyperkube image.
+#
+# Usage:
+#   VERSION=v1.1.2 [REGISTRY="gcr.io/google_containers"] make build
+#
+# Command:
+#   make -f Makefile.sigma VERSION=1.2.5-2 push
+
+REGISTRY?="61.160.36.122:8080/sigmas"
+ARCH=amd64
+BASEIMAGE=debian:jessie
+TEMP_DIR:=$(shell mktemp -d)
+
+## Comment in for arm builds, must be run on an arm machine
+# ARCH=arm
+# need to escape '/' for the regexp below
+# BASEIMAGE=armbuild\\/debian:jessie
+
+all: build
+
+build:
+ifndef VERSION
+    $(error VERSION is undefined)
+endif
+	cp ./* ${TEMP_DIR}
+	cp ~/Gopath-k8s-1.2/bin/hyperkube ${TEMP_DIR}
+	docker build -t ${REGISTRY}/hyperkube:${VERSION} -f ${TEMP_DIR}/Dockerfile.sigma ${TEMP_DIR}
+
+push: build
+	docker push ${REGISTRY}/hyperkube:${VERSION}
+
+.PHONY: all
