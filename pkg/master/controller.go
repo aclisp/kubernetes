@@ -17,7 +17,6 @@ limitations under the License.
 package master
 
 import (
-	"fmt"
 	"net"
 	"time"
 
@@ -95,7 +94,8 @@ func (c *Controller) Start() {
 func (c *Controller) RunKubernetesService(ch chan struct{}) {
 	util.Until(func() {
 		if err := c.UpdateKubernetesService(); err != nil {
-			util.HandleError(fmt.Errorf("unable to sync kubernetes service: %v", err))
+			// HHFix: 3 masters always have conflicting update. So disable the noisy error.
+			//util.HandleError(fmt.Errorf("unable to sync kubernetes service: %v", err))
 		}
 	}, c.EndpointInterval, ch)
 }

@@ -17,7 +17,6 @@ limitations under the License.
 package resourcequotacontroller
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/golang/glog"
@@ -248,12 +247,16 @@ func PodsRequests(pods []*api.Pod, resourceName api.ResourceName) *resource.Quan
 
 // PodRequests returns sum of each resource request across all containers in pod
 func PodRequests(pod *api.Pod, resourceName api.ResourceName) (*resource.Quantity, error) {
-	if !PodHasRequests(pod, resourceName) {
-		return nil, fmt.Errorf("Each container in pod %s/%s does not have an explicit request for resource %s.", pod.Namespace, pod.Name, resourceName)
-	}
+	// HHFix: Count 0 quantity if a pod does not have requests
+	//if !PodHasRequests(pod, resourceName) {
+	//	return nil, fmt.Errorf("Each container in pod %s/%s does not have an explicit request for resource %s.", pod.Namespace, pod.Name, resourceName)
+	//}
 	var sum *resource.Quantity
 	for j := range pod.Spec.Containers {
-		value, _ := pod.Spec.Containers[j].Resources.Requests[resourceName]
+		value, valueSet := pod.Spec.Containers[j].Resources.Requests[resourceName]
+		if !valueSet || value.Value() == int64(0) {
+			continue
+		}
 		if sum == nil {
 			sum = value.Copy()
 		} else {
