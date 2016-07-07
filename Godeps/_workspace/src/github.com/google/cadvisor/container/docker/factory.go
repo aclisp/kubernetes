@@ -84,6 +84,10 @@ func RootDir() string {
 	return *dockerRootDir
 }
 
+func SetRootDir(dir string) {
+	dockerRootDir = &dir
+}
+
 type storageDriver string
 
 const (

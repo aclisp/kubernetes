@@ -21,6 +21,7 @@ import (
 
 	"github.com/docker/libcontainer"
 	"github.com/docker/libcontainer/configs"
+	"github.com/golang/glog"
 	"github.com/google/cadvisor/utils"
 )
 
@@ -148,8 +149,11 @@ const libcontainerExecDriverPath = "execdriver/native"
 
 // TODO(vmarmol): Deprecate over time as old Dockers are phased out.
 func ReadConfig(dockerRoot, dockerRun, containerID string) (*configs.Config, error) {
+	glog.V(6).Infof("libcontainer.ReadConfig(dockerRoot %s dockerRun %s containerID %s)", dockerRoot, dockerRun, containerID)
+
 	// Try using the new config if it is available.
 	configPath := configPath(dockerRun, containerID)
+	glog.V(6).Infof("Try using the new config if it is available. configPath %s", configPath)
 	if utils.FileExists(configPath) {
 		out, err := ioutil.ReadFile(configPath)
 		if err != nil {
@@ -161,11 +165,19 @@ func ReadConfig(dockerRoot, dockerRun, containerID string) (*configs.Config, err
 		if err != nil {
 			return nil, err
 		}
+		glog.V(6).Infof("Config.Cgroups %+v",
+			state.Config.Cgroups)
+		glog.V(6).Infof("Config.Cgroups CpuQuota %d CpuShares %d Memory %d MemorySwap %d",
+			state.Config.Cgroups.CpuQuota,
+			state.Config.Cgroups.CpuShares,
+			state.Config.Cgroups.Memory,
+			state.Config.Cgroups.MemorySwap)
 		return &state.Config, nil
 	}
 
 	// Fallback to reading the old config which is comprised of the state and config files.
 	oldConfigPath := oldConfigPath(dockerRoot, containerID)
+	glog.V(6).Infof("Fallback to reading the old config which is comprised of the state and config files.. configPath %s", configPath)
 	out, err := ioutil.ReadFile(oldConfigPath)
 	if err != nil {
 		return nil, err

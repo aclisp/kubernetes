@@ -328,6 +328,10 @@ func toContainerStats0(s *cgroups.Stats, ret *info.ContainerStats) {
 		ret.Cpu.Usage.PerCpu[i] = s.CpuStats.CpuUsage.PercpuUsage[i]
 		ret.Cpu.Usage.Total += s.CpuStats.CpuUsage.PercpuUsage[i]
 	}
+
+	ret.Cpu.Throttling.Periods = s.CpuStats.ThrottlingData.Periods
+	ret.Cpu.Throttling.ThrottledPeriods = s.CpuStats.ThrottlingData.ThrottledPeriods
+	ret.Cpu.Throttling.ThrottledTime = s.CpuStats.ThrottlingData.ThrottledTime
 }
 
 func toContainerStats1(s *cgroups.Stats, ret *info.ContainerStats) {
@@ -343,6 +347,7 @@ func toContainerStats1(s *cgroups.Stats, ret *info.ContainerStats) {
 
 func toContainerStats2(s *cgroups.Stats, ret *info.ContainerStats) {
 	ret.Memory.Usage = s.MemoryStats.Usage.Usage
+	ret.Memory.MaxUsage = s.MemoryStats.Usage.MaxUsage
 	ret.Memory.Failcnt = s.MemoryStats.Usage.Failcnt
 	if v, ok := s.MemoryStats.Stats["pgfault"]; ok {
 		ret.Memory.ContainerData.Pgfault = v
@@ -351,6 +356,10 @@ func toContainerStats2(s *cgroups.Stats, ret *info.ContainerStats) {
 	if v, ok := s.MemoryStats.Stats["pgmajfault"]; ok {
 		ret.Memory.ContainerData.Pgmajfault = v
 		ret.Memory.HierarchicalData.Pgmajfault = v
+	}
+	if v, ok := s.MemoryStats.Stats["swap"]; ok {
+		ret.Memory.ContainerData.Swap = v
+		ret.Memory.HierarchicalData.Swap = v
 	}
 	if v, ok := s.MemoryStats.Stats["total_inactive_anon"]; ok {
 		workingSet := ret.Memory.Usage

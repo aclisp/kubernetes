@@ -46,10 +46,10 @@ type Cgroup struct {
 	CpuPeriod int64 `json:"cpu_period"`
 
 	// How many time CPU will use in realtime scheduling (in usecs).
-	CpuRtRuntime int64 `json:"cpu_quota"`
+	CpuRtRuntime int64 `json:"cpu_rt_runtime"`
 
 	// CPU period to be used for realtime scheduling (in usecs).
-	CpuRtPeriod int64 `json:"cpu_period"`
+	CpuRtPeriod int64 `json:"cpu_rt_period"`
 
 	// CPU to use
 	CpusetCpus string `json:"cpuset_cpus"`
