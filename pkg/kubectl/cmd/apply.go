@@ -40,10 +40,10 @@ const (
 
 JSON and YAML formats are accepted.`
 	apply_example = `# Apply the configuration in pod.json to a pod.
-$ kubectl apply -f ./pod.json
+$ sigctl apply -f ./pod.json
 
 # Apply the JSON passed into stdin to a pod.
-$ cat pod.json | kubectl apply -f -`
+$ cat pod.json | sigctl apply -f -`
 )
 
 func NewCmdApply(f *cmdutil.Factory, out io.Writer) *cobra.Command {

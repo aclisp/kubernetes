@@ -28,13 +28,13 @@ import (
 )
 
 const (
-	bash_completion_func = `# call kubectl get $1,
+	bash_completion_func = `# call sigctl get $1,
 __kubectl_parse_get()
 {
     local template
     template="{{ range .items  }}{{ .metadata.name }} {{ end }}"
     local kubectl_out
-    if kubectl_out=$(kubectl get -o template --template="${template}" "$1" 2>/dev/null); then
+    if kubectl_out=$(sigctl get -o template --template="${template}" "$1" 2>/dev/null); then
         COMPREPLY=( $( compgen -W "${kubectl_out[*]}" -- "$cur" ) )
     fi
 }
@@ -70,7 +70,7 @@ __kubectl_get_containers()
     fi
     local last=${nouns[${len} -1]}
     local kubectl_out
-    if kubectl_out=$(kubectl get -o template --template="${template}" pods "${last}" 2>/dev/null); then
+    if kubectl_out=$(sigctl get -o template --template="${template}" pods "${last}" 2>/dev/null); then
         COMPREPLY=( $( compgen -W "${kubectl_out[*]}" -- "$cur" ) )
     fi
 }
@@ -126,15 +126,15 @@ __custom_func() {
 `
 )
 
-// NewKubectlCommand creates the `kubectl` command and its nested children.
+// NewKubectlCommand creates the `sigctl` command and its nested children.
 func NewKubectlCommand(f *cmdutil.Factory, in io.Reader, out, err io.Writer) *cobra.Command {
 	// Parent command to which all subcommands are added.
 	cmds := &cobra.Command{
-		Use:   "kubectl",
-		Short: "kubectl controls the Kubernetes cluster manager",
-		Long: `kubectl controls the Kubernetes cluster manager.
+		Use:   "sigctl",
+		Short: "sigctl controls the Sigma cluster manager",
+		Long: `sigctl controls the Sigma cluster manager.
 
-Find more information at https://github.com/kubernetes/kubernetes.`,
+Find more information at https://61.160.36.122:9201/`,
 		Run: runHelp,
 		BashCompletionFunction: bash_completion_func,
 	}

@@ -42,20 +42,20 @@ const (
 
 JSON and YAML formats are accepted. If replacing an existing resource, the
 complete resource spec must be provided. This can be obtained by
-$ kubectl get TYPE NAME -o yaml
+$ sigctl get TYPE NAME -o yaml
 
 Please refer to the models in https://htmlpreview.github.io/?https://github.com/kubernetes/kubernetes/release-1.1/docs/api-reference/v1/definitions.html to find if a field is mutable.`
 	replace_example = `# Replace a pod using the data in pod.json.
-$ kubectl replace -f ./pod.json
+$ sigctl replace -f ./pod.json
 
 # Replace a pod based on the JSON passed into stdin.
-$ cat pod.json | kubectl replace -f -
+$ cat pod.json | sigctl replace -f -
 
 # Update a single-container pod's image version (tag) to v4
-kubectl get pod mypod -o yaml | sed 's/\(image: myimage\):.*$/\1:v4/' | kubectl replace -f -
+$ sigctl get pod mypod -o yaml | sed 's/\(image: myimage\):.*$/\1:v4/' | sigctl replace -f -
 
 # Force replace, delete and then re-create the resource
-kubectl replace --force -f ./pod.json`
+$ sigctl replace --force -f ./pod.json`
 )
 
 func NewCmdReplace(f *cmdutil.Factory, out io.Writer) *cobra.Command {
@@ -189,7 +189,7 @@ func forceReplace(f *cmdutil.Factory, out io.Writer, cmd *cobra.Command, args []
 	ignoreNotFound := true
 	// By default use a reaper to delete all related resources.
 	if cmdutil.GetFlagBool(cmd, "cascade") {
-		glog.Warningf("\"cascade\" is set, kubectl will delete and re-create all resources managed by this resource (e.g. Pods created by a ReplicationController). Consider using \"kubectl rolling-update\" if you want to update a ReplicationController together with its Pods.")
+		glog.Warningf("\"cascade\" is set, sigctl will delete and re-create all resources managed by this resource (e.g. Pods created by a ReplicationController). Consider using \"sigctl rolling-update\" if you want to update a ReplicationController together with its Pods.")
 		err = ReapResult(r, f, out, cmdutil.GetFlagBool(cmd, "cascade"), ignoreNotFound, cmdutil.GetFlagDuration(cmd, "timeout"), cmdutil.GetFlagInt(cmd, "grace-period"), shortOutput, mapper)
 	} else {
 		err = DeleteResult(r, out, ignoreNotFound, shortOutput, mapper)

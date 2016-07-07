@@ -44,10 +44,10 @@ const (
 
 You can use --output=template --template=TEMPLATE to extract specific values.`
 	view_example = `# Show Merged kubeconfig settings.
-$ kubectl config view
+$ sigctl config view
 
 # Get the password for the e2e user
-$ kubectl config view -o template --template='{{range .users}}{{ if eq .name "e2e" }}{{ index .user.password }}{{end}}{{end}}'`
+$ sigctl config view -o template --template='{{range .users}}{{ if eq .name "e2e" }}{{ index .user.password }}{{end}}{{end}}'`
 )
 
 func NewCmdConfigView(out io.Writer, ConfigAccess ConfigAccess) *cobra.Command {

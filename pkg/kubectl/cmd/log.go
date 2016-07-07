@@ -35,19 +35,19 @@ import (
 
 const (
 	log_example = `# Return snapshot logs from pod nginx with only one container
-$ kubectl logs nginx
+$ sigctl logs nginx
 
 # Return snapshot of previous terminated ruby container logs from pod web-1
-$ kubectl logs -p -c ruby web-1
+$ sigctl logs -p -c ruby web-1
 
 # Begin streaming the logs of the ruby container in pod web-1
-$ kubectl logs -f -c ruby web-1
+$ sigctl logs -f -c ruby web-1
 
 # Display only the most recent 20 lines of output in pod nginx
-$ kubectl logs --tail=20 nginx
+$ sigctl logs --tail=20 nginx
 
 # Show all logs from pod nginx written in the last hour
-$ kubectl logs --since=1h nginx`
+$ sigctl logs --since=1h nginx`
 )
 
 func selectContainer(pod *api.Pod, in io.Reader, out io.Writer) string {

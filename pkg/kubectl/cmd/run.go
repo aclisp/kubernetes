@@ -36,31 +36,31 @@ const (
 	run_long = `Create and run a particular image, possibly replicated.
 Creates a replication controller to manage the created container(s).`
 	run_example = `# Start a single instance of nginx.
-$ kubectl run nginx --image=nginx
+$ sigctl run nginx --image=nginx
 
 # Start a single instance of hazelcast and let the container expose port 5701 .
-$ kubectl run hazelcast --image=hazelcast --port=5701
+$ sigctl run hazelcast --image=hazelcast --port=5701
 
 # Start a single instance of hazelcast and set environment variables "DNS_DOMAIN=cluster" and "POD_NAMESPACE=default" in the container.
-$ kubectl run hazelcast --image=hazelcast --env="DNS_DOMAIN=local" --env="POD_NAMESPACE=default"
+$ sigctl run hazelcast --image=hazelcast --env="DNS_DOMAIN=local" --env="POD_NAMESPACE=default"
 
 # Start a replicated instance of nginx.
-$ kubectl run nginx --image=nginx --replicas=5
+$ sigctl run nginx --image=nginx --replicas=5
 
 # Dry run. Print the corresponding API objects without creating them.
-$ kubectl run nginx --image=nginx --dry-run
+$ sigctl run nginx --image=nginx --dry-run
 
 # Start a single instance of nginx, but overload the spec of the replication controller with a partial set of values parsed from JSON.
-$ kubectl run nginx --image=nginx --overrides='{ "apiVersion": "v1", "spec": { ... } }'
+$ sigctl run nginx --image=nginx --overrides='{ "apiVersion": "v1", "spec": { ... } }'
 
 # Start a single instance of nginx and keep it in the foreground, don't restart it if it exits.
-$ kubectl run -i -tty nginx --image=nginx --restart=Never
+$ sigctl run -i -tty nginx --image=nginx --restart=Never
 
 # Start the nginx container using the default command, but use custom arguments (arg1 .. argN) for that command.
-$ kubectl run nginx --image=nginx -- <arg1> <arg2> ... <argN>
+$ sigctl run nginx --image=nginx -- <arg1> <arg2> ... <argN>
 
 # Start the nginx container using a different command and custom arguments
-$ kubectl run nginx --image=nginx --command -- <cmd> <arg1> ... <argN>`
+$ sigctl run nginx --image=nginx --command -- <cmd> <arg1> ... <argN>`
 )
 
 func NewCmdRun(f *cmdutil.Factory, cmdIn io.Reader, cmdOut, cmdErr io.Writer) *cobra.Command {

@@ -40,16 +40,16 @@ See 'kubectl delete --help' for more details.
 Attempts to shut down and delete a resource that supports graceful termination.
 If the resource is scalable it will be scaled to 0 before deletion.`
 	stop_example = `# Shut down foo.
-$ kubectl stop replicationcontroller foo
+$ sigctl stop replicationcontroller foo
 
 # Stop pods and services with label name=myLabel.
-$ kubectl stop pods,services -l name=myLabel
+$ sigctl stop pods,services -l name=myLabel
 
 # Shut down the service defined in service.json
-$ kubectl stop -f service.json
+$ sigctl stop -f service.json
 
 # Shut down all resources in the path/to/resources directory
-$ kubectl stop -f path/to/resources`
+$ sigctl stop -f path/to/resources`
 )
 
 func NewCmdStop(f *cmdutil.Factory, out io.Writer) *cobra.Command {

@@ -43,16 +43,16 @@ If --current-replicas or --resource-version is specified, it is validated before
 scale is attempted, and it is guaranteed that the precondition holds true when the
 scale is sent to the server.`
 	scale_example = `# Scale replication controller named 'foo' to 3.
-$ kubectl scale --replicas=3 replicationcontrollers foo
+$ sigctl scale --replicas=3 replicationcontrollers foo
 
 # Scale a replication controller identified by type and name specified in "foo-controller.yaml" to 3.
-$ kubectl scale --replicas=3 -f foo-controller.yaml
+$ sigctl scale --replicas=3 -f foo-controller.yaml
 
 # If the replication controller named foo's current size is 2, scale foo to 3.
-$ kubectl scale --current-replicas=2 --replicas=3 replicationcontrollers foo
+$ sigctl scale --current-replicas=2 --replicas=3 replicationcontrollers foo
 
 # Scale multiple replication controllers.
-$ kubectl scale --replicas=5 rc/foo rc/bar`
+$ sigctl scale --replicas=5 rc/foo rc/bar`
 )
 
 // NewCmdScale returns a cobra command with the appropriate configuration and flags to run scale

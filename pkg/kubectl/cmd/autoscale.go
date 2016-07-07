@@ -35,10 +35,10 @@ Looks up a replication controller by name and creates an autoscaler that uses th
 An autoscaler can automatically increase or decrease number of pods deployed within the system as needed.`
 
 	autoscaleExample = `# Auto scale a replication controller "foo", with the number of pods between 2 to 10, target CPU utilization at a default value that server applies:
-$ kubectl autoscale rc foo --min=2 --max=10
+$ sigctl autoscale rc foo --min=2 --max=10
 
 # Auto scale a replication controller "foo", with the number of pods between 1 to 5, target CPU utilization at 80%:
-$ kubectl autoscale rc foo --max=5 --cpu-percent=80`
+$ sigctl autoscale rc foo --max=5 --cpu-percent=80`
 )
 
 // TODO: support autoscale for deployments
