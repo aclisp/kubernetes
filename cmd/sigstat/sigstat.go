@@ -4,10 +4,13 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
 	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/golang/glog"
@@ -52,6 +55,8 @@ func newCadvisorClient() (*cadvisorClient, error) {
 }
 
 func main() {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, os.Kill, syscall.SIGHUP, syscall.SIGTERM)
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	util.InitFlags()
@@ -67,6 +72,7 @@ func main() {
 	if err != nil {
 		glog.Fatal(err)
 	}
+	defer cadvisorClient.Stop()
 
 	err = cadvisorClient.exportHTTP(13394)
 	if err != nil {
@@ -74,13 +80,25 @@ func main() {
 	}
 
 	count := 0
+	buf := NewFlushSyncWriter()
+	defer func() {
+		buf.Flush()
+		buf.Sync()
+	}()
+
+	stop := make(chan struct{})
 	util.Until(func () {
-		cadvisorClient.printAllContainers(count)
+		select {
+		case <-sig:
+			close(stop)
+		default:
+		}
+		cadvisorClient.printAllContainers(buf, count)
 		count++
-	}, 1*time.Second, util.NeverStop)
+	}, 1*time.Second, stop)
 }
 
-func (cc *cadvisorClient) printAllContainers(count int) {
+func (cc *cadvisorClient) printAllContainers(b FlushSyncWriter, count int) {
 	machine, err := cc.GetMachineInfo()
 	if err != nil {
 		glog.Fatal(err)
@@ -91,10 +109,10 @@ func (cc *cadvisorClient) printAllContainers(count int) {
 	}
 
 	if count % 60 == 0 {
-		fmt.Printf("/ root container")
-		fmt.Printf(" CPU core %s", format(int64(machine.NumCores * 1000)))
-		fmt.Printf(" MEM max-swa %s %s", format(int64(rootCont.Spec.Memory.Limit)), format(int64(rootCont.Spec.Memory.SwapLimit)))
-		fmt.Printf("\n")
+		fmt.Fprintf(b, "/ root container")
+		fmt.Fprintf(b, " CPU core %s", format(int64(machine.NumCores * 1000)))
+		fmt.Fprintf(b, " MEM max-swa %s %s", format(int64(rootCont.Spec.Memory.Limit)), format(int64(rootCont.Spec.Memory.SwapLimit)))
+		fmt.Fprintf(b, "\n")
 	}
 
 	containers, err := cc.AllDockerContainers(&cadvisorApi.ContainerInfoRequest{NumStats:2})
@@ -132,13 +150,13 @@ func (cc *cadvisorClient) printAllContainers(count int) {
 		contSpecCpuMaxLimit := cont.Spec.Cpu.MaxLimit * 1000 / 100000
 
 		if count % 20 == 0 {
-			fmt.Printf("%s %s %s", cont.Name[:20], podFullName, podContainerName)
-			fmt.Printf(" CPU req-lim %s %s", format(int64(contSpecCpuLimit)), format(int64(contSpecCpuMaxLimit)))
-			fmt.Printf(" MEM lim-swa %s %s", format(int64(cont.Spec.Memory.Limit)), format(int64(cont.Spec.Memory.SwapLimit - cont.Spec.Memory.Limit)))
-			fmt.Printf(" CPU usr-sys-tol-fai")
-			fmt.Printf(" MEM hot-use-max-fai-swa")
-			fmt.Printf(" IO dev-rMB-wMB")
-			fmt.Printf("\n")
+			fmt.Fprintf(b, "%s %s %s", cont.Name[:20], podFullName, podContainerName)
+			fmt.Fprintf(b, " CPU req-lim %s %s", format(int64(contSpecCpuLimit)), format(int64(contSpecCpuMaxLimit)))
+			fmt.Fprintf(b, " MEM lim-swa %s %s", format(int64(cont.Spec.Memory.Limit)), format(int64(cont.Spec.Memory.SwapLimit - cont.Spec.Memory.Limit)))
+			fmt.Fprintf(b, " CPU usr-sys-tol-fai")
+			fmt.Fprintf(b, " MEM hot-use-max-fai-swa")
+			fmt.Fprintf(b, " IO dev-rMB-wMB")
+			fmt.Fprintf(b, "\n")
 		}
 
 		for i := range cont.Stats[1:] {
@@ -168,7 +186,7 @@ func (cc *cadvisorClient) printAllContainers(count int) {
 			cpuUserRate := convertToRate(prev.Cpu.Usage.User, cur.Cpu.Usage.User)
 			cpuSystemRate := convertToRate(prev.Cpu.Usage.System, cur.Cpu.Usage.System)
 			cpuTotalRate := convertToRate(prev.Cpu.Usage.Total, cur.Cpu.Usage.Total)
-			fmt.Printf("  %s %s | %d,%d %d,%d %d,%d %d | ",
+			fmt.Fprintf(b, "  %s %s | %2d,%2d %2d,%2d %2d,%2d %3d | ",
 				cur.Timestamp.Format(time.Stamp),
 				podFullName,
 				cpuUserRate / 100,
@@ -179,7 +197,7 @@ func (cc *cadvisorClient) printAllContainers(count int) {
 				convertToUtil(cpuTotalRate, contSpecCpuMaxLimit),
 				cur.Cpu.Throttling.ThrottledPeriods)
 
-			fmt.Printf("%d %d %d %d %d | ",
+			fmt.Fprintf(b, "%2d %2d %2d %3d %2d | ",
 				convertToUtil(cur.Memory.WorkingSet, cont.Spec.Memory.Limit),
 				convertToUtil(cur.Memory.Usage, cont.Spec.Memory.Limit),
 				convertToUtil(cur.Memory.MaxUsage, cont.Spec.Memory.Limit),
@@ -201,7 +219,7 @@ func (cc *cadvisorClient) printAllContainers(count int) {
 				if err != nil {
 					continue
 				}
-				fmt.Printf("%d:%d %d,%d %d,%d ",
+				fmt.Fprintf(b, "%d:%d %d,%d %d,%d ",
 					curIoServiced.Major,
 					curIoServiced.Minor,
 					curIoServiced.Stats["Read"] - prevIoServiced.Stats["Read"],
@@ -210,10 +228,10 @@ func (cc *cadvisorClient) printAllContainers(count int) {
 					(curIoServiceBytes.Stats["Write"] - prevIoServiceBytes.Stats["Write"]) / 1024 / 1024)
 			}
 
-			fmt.Printf("\n")
+			fmt.Fprintf(b, "\n")
 		}
 	}
-	fmt.Printf("\n")
+	fmt.Fprintf(b, "\n")
 }
 
 func (cc *cadvisorClient) exportHTTP(port uint) error {
