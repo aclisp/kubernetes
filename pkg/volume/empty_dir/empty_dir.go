@@ -28,6 +28,10 @@ import (
 	"k8s.io/kubernetes/pkg/util/strings"
 	"k8s.io/kubernetes/pkg/volume"
 	volumeutil "k8s.io/kubernetes/pkg/volume/util"
+
+	"io/ioutil"
+	"regexp"
+	stdstrings "strings"
 )
 
 // TODO: in the near future, this will be changed to be more restrictive
@@ -52,6 +56,13 @@ var _ volume.VolumePlugin = &emptyDirPlugin{}
 
 const (
 	emptyDirPluginName = "kubernetes.io/empty-dir"
+
+	sigmaDiskBasePath  = "/"
+	sigmaDiskAllocated = "sigma-allocated"
+	sigmaDiskBackup    = "sigma-backup"
+	sigmaDiskMetaFile  = "disk"
+	storageMediumDisk  = "Disk"
+	invalidPathDiskExhausted = "<diskExhausted>"
 )
 
 func (plugin *emptyDirPlugin) Init(host volume.VolumeHost) error {
@@ -155,6 +166,10 @@ func (ed *emptyDir) SetUp(fsGroup *int64) error {
 
 // SetUpAt creates new directory.
 func (ed *emptyDir) SetUpAt(dir string, fsGroup *int64) error {
+	if dir == invalidPathDiskExhausted {
+		return fmt.Errorf("disk exhausted")
+	}
+
 	notMnt, err := ed.mounter.IsLikelyNotMountPoint(dir)
 	// Getting an os.IsNotExist err from is a contingency; the directory
 	// may not exist yet, in which case, setup should run.
@@ -171,6 +186,8 @@ func (ed *emptyDir) SetUpAt(dir string, fsGroup *int64) error {
 			return nil
 		} else if ed.medium == api.StorageMediumDefault {
 			return nil
+		} else if ed.medium == storageMediumDisk {
+			return nil
 		}
 	}
 
@@ -185,6 +202,8 @@ func (ed *emptyDir) SetUpAt(dir string, fsGroup *int64) error {
 		err = ed.setupDir(dir)
 	case api.StorageMediumMemory:
 		err = ed.setupTmpfs(dir, securityContext)
+	case storageMediumDisk:
+		err = ed.setupDisk(dir)
 	default:
 		err = fmt.Errorf("unknown storage medium %q", ed.medium)
 	}
@@ -193,9 +212,44 @@ func (ed *emptyDir) SetUpAt(dir string, fsGroup *int64) error {
 
 	if err == nil {
 		volumeutil.SetReady(ed.getMetaDir())
+		if ed.medium == storageMediumDisk {
+			saveDiskPath(ed.getMetaDir(), dir)
+		}
 	}
 
 	return err
+}
+
+func saveDiskPath(metadir, diskpath string) error {
+	if err := os.MkdirAll(metadir, 0750); err != nil && !os.IsExist(err) {
+		glog.Errorf("Can't mkdir %s: %v", metadir, err)
+		return err
+	}
+
+	metafile := path.Join(metadir, sigmaDiskMetaFile)
+	if err := ioutil.WriteFile(metafile, []byte(diskpath), 0666); err != nil {
+		glog.Errorf("Can't save disk path %s: %v", metafile, err)
+		return err
+	}
+
+	return nil
+}
+
+func loadDiskPath(metadir string) (diskpath string, err error) {
+	metafile := path.Join(metadir, sigmaDiskMetaFile)
+	bytes, err := ioutil.ReadFile(metafile)
+	return string(bytes), err
+}
+
+func (ed *emptyDir) setupDisk(dir string) error {
+	if err := ed.setupDir(dir); err != nil {
+		return err
+	}
+	// We also need to setup the default path, so Kubelet.getPodVolumesFromDisk is aware of this volume.
+	if err := ed.setupDir(GetPath(ed.pod.UID, ed.volName, ed.plugin.host)); err != nil {
+		return err
+	}
+	return nil
 }
 
 // setupTmpfs creates a tmpfs mount at the specified directory with the
@@ -271,7 +325,69 @@ func (ed *emptyDir) setupDir(dir string) error {
 }
 
 func (ed *emptyDir) GetPath() string {
+	if ed.medium == storageMediumDisk {
+		path, err := ed.getPathDisk(sigmaDiskBasePath)
+		if err != nil {
+			return invalidPathDiskExhausted
+		}
+		return path
+	}
+
 	return GetPath(ed.pod.UID, ed.volName, ed.plugin.host)
+}
+
+func (ed *emptyDir) getPathDisk(basePath string) (string, error) {
+	var disks []string
+	dirs, err := ioutil.ReadDir(basePath)
+	if err != nil {
+		return "", err
+	}
+	for _, dir := range dirs {
+		matched, err := regexp.MatchString("^data[1-9]$", dir.Name())
+		if err != nil {
+			return "", err
+		}
+		if matched {
+			disks = append(disks, path.Join(basePath, dir.Name()))
+		}
+	}
+
+	// check if the PodVolumeDir already exists (created previously)
+	for _, disk := range disks {
+		podVolumesDir := ed.getPodVolumesDir(disk)
+		fi, err := os.Stat(podVolumesDir)
+		if err == nil && fi.IsDir() { // Found!
+			return path.Join(podVolumesDir, ed.volName), nil
+		}
+	}
+
+	// allocate a disk only if there is no dir'sigmaDiskAllocated'
+	for _, disk := range disks {
+		if _, err := os.Stat(path.Join(disk, sigmaDiskAllocated)); os.IsNotExist(err) {
+			podVolumesDir := ed.getPodVolumesDir(disk)
+			return path.Join(podVolumesDir, ed.volName), nil
+		}
+	}
+
+	// disk exhausted
+	return "", &diskExhausted{msg: ed.getPodFullName(), alloc: len(disks)}
+}
+
+func (ed *emptyDir) getPodVolumesDir(disk string) string {
+	return path.Join(disk, sigmaDiskAllocated, ed.getPodFullName(), "volumes")
+}
+
+func (ed *emptyDir) getPodFullName() string {
+	return ed.pod.Namespace + "_" + ed.pod.Name
+}
+
+type diskExhausted struct {
+	msg   string // description of error
+	alloc int    // number of allocated disks
+}
+
+func (e *diskExhausted) Error() string {
+	return fmt.Sprintf("Disk Exhausted: allocated %d: %s", e.alloc, e.msg)
 }
 
 func GetPath(uid types.UID, volName string, host volume.VolumeHost) string {
@@ -286,6 +402,16 @@ func (ed *emptyDir) TearDown() error {
 
 // TearDownAt simply discards everything in the directory.
 func (ed *emptyDir) TearDownAt(dir string) error {
+	// Figure out the medium if it is disk.
+	/* Disable auto-backup for simplified pod recreation */
+	diskpath, err := loadDiskPath(ed.getMetaDir())
+	if err == nil {
+		return ed.teardownDisk(diskpath, dir)
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+
 	// Figure out the medium.
 	medium, isMnt, err := ed.mountDetector.GetMountMedium(dir)
 	if err != nil {
@@ -296,6 +422,23 @@ func (ed *emptyDir) TearDownAt(dir string) error {
 		return ed.teardownTmpfs(dir)
 	}
 	// assume StorageMediumDefault
+	return ed.teardownDefault(dir)
+}
+
+func (ed *emptyDir) teardownDisk(diskpath, dir string) error {
+	// dir = basePath + disk + sigmaDiskAllocated + podFullName + volumes + volName
+	if _, err := os.Stat(diskpath); err == nil {
+		// Backup
+		n := stdstrings.Index(diskpath, sigmaDiskAllocated)
+		if n == -1 {
+			return fmt.Errorf("disk storage requested, but disk path is invalid: %q", diskpath)
+		}
+		tmpDir, err := volume.RenameDirectory(path.Join(diskpath[:n], sigmaDiskAllocated), sigmaDiskBackup)
+		if err != nil {
+			return err
+		}
+		glog.Warningf("Orphaned disk volume %q was moved to %q", ed.pod.UID, tmpDir)
+	}
 	return ed.teardownDefault(dir)
 }
 

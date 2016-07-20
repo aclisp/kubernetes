@@ -89,6 +89,8 @@ import (
 	"k8s.io/kubernetes/pkg/watch"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm/predicates"
 	"k8s.io/kubernetes/third_party/golang/expansion"
+
+	"k8s.io/kubernetes/pkg/kubelet/hostportallocator"
 )
 
 const (
@@ -1391,21 +1393,108 @@ func (kl *Kubelet) GenerateRunContainerOptions(pod *api.Pod, container *api.Cont
 		return nil, err
 	}
 
-	if len(container.TerminationMessagePath) != 0 {
+	// HH extension: fix, so PodInfraContainer has a PodContainerDir
+	//if len(container.TerminationMessagePath) != 0 {
 		p := kl.getPodContainerDir(pod.UID, container.Name)
 		if err := os.MkdirAll(p, 0750); err != nil {
 			glog.Errorf("Error on creating %q: %v", p, err)
 		} else {
 			opts.PodContainerDir = p
 		}
-	}
+	//}
 
 	opts.DNS, opts.DNSSearch, err = kl.GetClusterDNS(pod)
 	if err != nil {
 		return nil, err
 	}
 
+	// HH extension:
+	allocateHostPorts(opts.PortMappings, container, opts.PodContainerDir, pod)
+	opts.Envs = kl.appendPortMappingsToEnvs(opts.Envs, pod)
+	opts.Envs = kl.appendNodeNameToEnvs(opts.Envs, pod)
+
 	return opts, nil
+}
+
+// allocateHostPorts modifies the port mapping in place.
+func allocateHostPorts(ports []kubecontainer.PortMapping, container *api.Container, podContainerDir string, pod *api.Pod) {
+	allocator := hostportallocator.Allocator{
+		PodContainerDir: podContainerDir,
+	}
+	defer allocator.Done()
+	for i := range ports {
+		// Allocate random host port if it is zero. And do it only for PodInfraContainer.
+		if container.Name == dockertools.PodInfraContainerName {
+			if ports[i].HostPort == 0 {
+				loaded, err := allocator.LoadPortMapping(&ports[i])
+				if err != nil {
+					glog.Errorf("Failed to load port mapping %q from %q: %v", ports[i].Name, podContainerDir, err)
+					continue
+				}
+				if loaded {
+					glog.Warningf("Load previous port mapping %q from %q", ports[i].Name, podContainerDir)
+					continue
+				}
+
+				port, err := allocator.Allocate()
+				if err != nil {
+					glog.Errorf("Failed to allocate random host port for %q: %v", ports[i].Name, err)
+					continue
+				}
+				ports[i].HostPort = port
+			}
+			// Save this port mapping to podContainerDir.
+			// Because it should be reused on container crash.
+			if err := allocator.SavePortMapping(ports[i]); err != nil {
+				glog.Errorf("Failed to save port mapping %q to %q: %v", ports[i].Name, podContainerDir, err)
+				continue
+			}
+		}
+	}
+}
+
+func (kl *Kubelet) loadPodPortMappings(pod *api.Pod) (result []kubecontainer.PortMapping) {
+	// Assemble port mappings into PodStatus.Message
+	containerName := dockertools.PodInfraContainerName
+	podContainerDir := kl.getPodContainerDir(pod.UID, containerName)
+	var ports []api.ContainerPort
+	// Docker only exports ports from the pod infra container.  Let's
+	// collect all of the relevant ports to know which are exported.
+	for _, container := range pod.Spec.Containers {
+		ports = append(ports, container.Ports...)
+	}
+	container := &api.Container{
+		Name:            containerName,
+		Ports:           ports,
+	}
+	portMappings := makePortMappings(container)
+	allocator := hostportallocator.Allocator{
+		PodContainerDir: podContainerDir,
+	}
+	for _, pm := range portMappings {
+		if loaded, _ := allocator.LoadPortMapping(&pm); loaded {
+			result = append(result, pm)
+		}
+	}
+	return
+}
+
+func (kl *Kubelet) appendPortMappingsToEnvs(envs []kubecontainer.EnvVar, pod *api.Pod) []kubecontainer.EnvVar {
+	for _, pm := range kl.loadPodPortMappings(pod) {
+		envs = append(envs, kubecontainer.EnvVar{
+			Name: fmt.Sprintf("SIGMA_PORT_MAPPING_%s_%d", pm.Protocol, pm.ContainerPort),
+			Value: fmt.Sprintf("%d", pm.HostPort),
+		})
+	}
+	return envs
+}
+
+func (kl *Kubelet) appendNodeNameToEnvs(envs []kubecontainer.EnvVar, pod *api.Pod) []kubecontainer.EnvVar {
+	envs = append(envs, kubecontainer.EnvVar{
+		Name: "SIGMA_HOST_IP",
+		Value: pod.Spec.NodeName,
+	})
+	return envs
 }
 
 var masterServices = sets.NewString("kubernetes")
@@ -3270,7 +3359,24 @@ func (kl *Kubelet) generatePodStatus(pod *api.Pod, podStatus *kubecontainer.PodS
 		}
 	}
 
+	// HH extension:
+	kl.generatePodPortMappings(pod, s)
+
 	return *s
+}
+
+func (kl *Kubelet) generatePodPortMappings(pod *api.Pod, podStatus *api.PodStatus) {
+	var mappingInfo string
+	for _, pm := range kl.loadPodPortMappings(pod) {
+		mappingInfo += fmt.Sprintf("%d->%d/%s,", pm.HostPort, pm.ContainerPort, pm.Protocol)
+	}
+	mappingInfo = strings.TrimSuffix(mappingInfo, ",")
+	if len(mappingInfo) != 0 {
+		if len(podStatus.Message) != 0 {
+			podStatus.Message += " "
+		}
+		podStatus.Message += fmt.Sprintf("PortMapping(%s)", mappingInfo)
+	}
 }
 
 // TODO(random-liu): Move this to some better place.

@@ -37,7 +37,7 @@ ifndef VERSION
     $(error VERSION is undefined)
 endif
 	cp ./* ${TEMP_DIR}
-	cp ~/Gopath-k8s-1.2/bin/hyperkube ${TEMP_DIR}
+	godep go build -o ${TEMP_DIR}/hyperkube k8s.io/kubernetes/cmd/hyperkube
 	docker build -t ${REGISTRY}/hyperkube:${VERSION} -f ${TEMP_DIR}/Dockerfile.sigma ${TEMP_DIR}
 
 push: build

@@ -363,6 +363,9 @@ var fieldMappings = versionToResourceToFieldMapping{
 		"serviceAccounts": clientFieldNameToAPIVersionFieldName{
 			objectNameField: objectNameField,
 		},
+		"serviceaccounts": clientFieldNameToAPIVersionFieldName{
+			objectNameField: objectNameField,
+		},
 		"endpoints": clientFieldNameToAPIVersionFieldName{
 			objectNameField: objectNameField,
 		},

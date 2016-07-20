@@ -321,3 +321,74 @@ func TestMetrics(t *testing.T) {
 		t.Errorf("Expected Available to be greater than 0")
 	}
 }
+
+func TestGetPathDisk(t *testing.T) {
+	basePath := "/tmp/disk"
+	disks := []string{
+		path.Join(basePath, "data1"),
+		path.Join(basePath, "data2"),
+	}
+	for _, disk := range disks {
+		if err := os.MkdirAll(disk, perm); err != nil {
+			t.Fatalf("Can not make dir %q: %v", disk, err)
+		}
+	}
+
+	ed := &emptyDir{
+		pod:     &api.Pod{
+			ObjectMeta: api.ObjectMeta{
+				UID:       types.UID("poduid-1"),
+				Namespace: "podnamespace-1",
+				Name:      "podname-1",
+			},
+		},
+		volName: "my-data",
+		medium:  storageMediumDisk,
+	}
+	volPath, err := ed.getPathDisk(basePath)
+	if volPath != path.Join(ed.getPodVolumesDir(disks[0]), ed.volName) {
+		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
+	}
+	if err := os.MkdirAll(volPath, perm); err != nil {
+		t.Fatalf("Can not make dir %q: %v", volPath, err)
+	}
+
+	ed.pod = &api.Pod{
+		ObjectMeta: api.ObjectMeta{
+			UID:       types.UID("poduid-2"),
+			Namespace: "podnamespace-2",
+			Name:      "podname-2",
+		},
+	}
+	volPath, err = ed.getPathDisk(basePath)
+	if volPath != path.Join(ed.getPodVolumesDir(disks[1]), ed.volName) {
+		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
+	}
+	if err := os.MkdirAll(volPath, perm); err != nil {
+		t.Fatalf("Can not make dir %q: %v", volPath, err)
+	}
+
+	ed.pod = &api.Pod{
+		ObjectMeta: api.ObjectMeta{
+			UID:       types.UID("poduid-3"),
+			Namespace: "podnamespace-3",
+			Name:      "podname-3",
+		},
+	}
+	volPath, err = ed.getPathDisk(basePath)
+	if _, ok := err.(*diskExhausted); !ok {
+		t.Fatalf("Shall be diskExhausted: %v", err)
+	}
+
+	ed.pod = &api.Pod{
+		ObjectMeta: api.ObjectMeta{
+			UID:       types.UID("poduid-2"),
+			Namespace: "podnamespace-2",
+			Name:      "podname-2",
+		},
+	}
+	volPath, err = ed.getPathDisk(basePath)
+	if volPath != path.Join(ed.getPodVolumesDir(disks[1]), ed.volName) {
+		t.Fatalf("Incorrect volume path %q: %v", volPath, err)
+	}
+}

@@ -17,6 +17,7 @@ package v1
 import (
 	"reflect"
 	"time"
+	"fmt"
 )
 
 type CpuSpec struct {
@@ -282,9 +283,24 @@ type CpuUsage struct {
 	System uint64 `json:"system"`
 }
 
+type CpuThrottling struct {
+	// Number of periods with throttling active
+	// Unit: -
+	Periods uint64 `json:"periods"`
+
+	// Number of periods when the container hit its throttling limit.
+	// Unit: -
+	ThrottledPeriods uint64 `json:"throttled_periods"`
+
+	// Aggregate time the container was throttled for in nanoseconds.
+	// Unit: nanoseconds
+	ThrottledTime uint64 `json:"throttled_time"`
+}
+
 // All CPU usage metrics are cumulative from the creation of the container
 type CpuStats struct {
 	Usage CpuUsage `json:"usage"`
+	Throttling CpuThrottling `json:"throttling"`
 	// Smoothed average of number of runnable threads x 1000.
 	// We multiply by thousand to avoid using floats, but preserving precision.
 	// Load is smoothed over the last 10 seconds. Instantaneous value can be read
@@ -309,11 +325,36 @@ type DiskIoStats struct {
 	IoTime         []PerDiskStats `json:"io_time,omitempty"`
 }
 
+// Sorts PerDiskStats by Major:Minor
+type PerDiskStatsSlice []PerDiskStats
+
+func (self PerDiskStatsSlice) Len() int           { return len(self) }
+func (self PerDiskStatsSlice) Swap(i, j int)      { self[i], self[j] = self[j], self[i] }
+func (self PerDiskStatsSlice) Less(i, j int) bool {
+	if self[i].Major == self[j].Major {
+		return self[i].Minor < self[j].Minor
+	}
+	return self[i].Major < self[j].Major
+}
+
+func (self PerDiskStatsSlice) Find(major, minor uint64) (PerDiskStats, error) {
+	for i := range self {
+		if self[i].Major == major && self[i].Minor == minor {
+			return self[i], nil
+		}
+	}
+	return PerDiskStats{}, fmt.Errorf("Major:minor %d:%d not found", major, minor)
+}
+
 type MemoryStats struct {
 	// Current memory usage, this includes all memory regardless of when it was
 	// accessed.
 	// Units: Bytes.
 	Usage uint64 `json:"usage"`
+
+	// Maximum memory usage recorded.
+	// Units: Bytes.
+	MaxUsage uint64 `json:"max_usage"`
 
 	// Number of bytes of page cache memory.
 	// Units: Bytes.
@@ -338,6 +379,7 @@ type MemoryStats struct {
 type MemoryStatsMemoryData struct {
 	Pgfault    uint64 `json:"pgfault"`
 	Pgmajfault uint64 `json:"pgmajfault"`
+	Swap       uint64 `json:"swap"`
 }
 
 type InterfaceStats struct {

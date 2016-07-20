@@ -1597,9 +1597,24 @@ func ValidatePodUpdate(newPod, oldPod *api.Pod) field.ErrorList {
 	var newContainers []api.Container
 	for ix, container := range mungedPod.Spec.Containers {
 		container.Image = oldPod.Spec.Containers[ix].Image
+
+		// HH extension:
+		container.Command = oldPod.Spec.Containers[ix].Command
+		container.Args = oldPod.Spec.Containers[ix].Args
+		container.WorkingDir = oldPod.Spec.Containers[ix].WorkingDir
+		container.Lifecycle = oldPod.Spec.Containers[ix].Lifecycle
+		container.Resources = oldPod.Spec.Containers[ix].Resources
+		container.Env = oldPod.Spec.Containers[ix].Env
+		container.ImagePullPolicy = oldPod.Spec.Containers[ix].ImagePullPolicy
+		container.VolumeMounts = oldPod.Spec.Containers[ix].VolumeMounts
+
 		newContainers = append(newContainers, container)
 	}
 	mungedPod.Spec.Containers = newContainers
+
+	// HH extension:
+	mungedPod.Spec.Volumes = oldPod.Spec.Volumes
+
 	// munge spec.activeDeadlineSeconds
 	mungedPod.Spec.ActiveDeadlineSeconds = nil
 	if oldPod.Spec.ActiveDeadlineSeconds != nil {
@@ -1608,7 +1623,18 @@ func ValidatePodUpdate(newPod, oldPod *api.Pod) field.ErrorList {
 	}
 	if !api.Semantic.DeepEqual(mungedPod.Spec, oldPod.Spec) {
 		//TODO: Pinpoint the specific field that causes the invalid error after we have strategic merge diff
-		allErrs = append(allErrs, field.Forbidden(specPath, "pod updates may not change fields other than `containers[*].image` or `spec.activeDeadlineSeconds`"))
+		allErrs = append(allErrs, field.Forbidden(specPath,
+			"pod updates may not change fields other than `containers[*].image`" +
+				" or `spec.activeDeadlineSeconds`" +
+				" or `containers[*].resources`" +
+				" or `containers[*].env`" +
+				" or `containers[*].imagePullPolicy`" +
+				" or `containers[*].command`" +
+				" or `containers[*].args`" +
+				" or `containers[*].workingDir`" +
+				" or `containers[*].lifecycle`" +
+				" or `containers[*].volumeMounts`" +
+				" or `spec.volumes`"))
 	}
 
 	return allErrs

@@ -258,6 +258,9 @@ func libcontainerConfigToContainerSpec(config *libcontainerconfigs.Config, mi *i
 		if config.Cgroups.Resources.CpuShares != 0 {
 			spec.Cpu.Limit = uint64(config.Cgroups.Resources.CpuShares)
 		}
+		if config.Cgroups.Resources.CpuQuota != 0 {
+			spec.Cpu.MaxLimit = uint64(config.Cgroups.Resources.CpuQuota)
+		}
 		spec.Cpu.Mask = utils.FixCpuMask(config.Cgroups.Resources.CpusetCpus, mi.NumCores)
 	}
 

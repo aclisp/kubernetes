@@ -91,6 +91,10 @@ func NewFsInfo(context Context) (FsInfo, error) {
 		if _, ok := fsInfo.partitions[mount.Source]; ok {
 			continue
 		}
+		// Ignore transient devices. #1048
+		if strings.HasPrefix(mount.Mountpoint, fmt.Sprintf("%s/devicemapper/mnt", context.DockerRoot)) {
+			continue
+		}
 		if mount.Fstype == "zfs" {
 			Fstype = mount.Fstype
 		}

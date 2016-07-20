@@ -55,6 +55,9 @@ import (
 	"k8s.io/kubernetes/pkg/util/procfs"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
 	utilstrings "k8s.io/kubernetes/pkg/util/strings"
+
+	"sort"
+	"k8s.io/kubernetes/pkg/kubelet/fixer"
 )
 
 const (
@@ -367,7 +370,7 @@ func (dm *DockerManager) inspectContainer(id string, podName, podNamespace strin
 		// In that case, the container is oom killed, but the exit
 		// code could be 0.
 		if iResult.State.OOMKilled {
-			reason = "OOMKilled"
+			reason = "Killed"  // HH: It is always OOMKilled when killing the process or changing the image.
 		} else if iResult.State.ExitCode == 0 {
 			reason = "Completed"
 		} else if !iResult.State.FinishedAt.IsZero() {
@@ -577,7 +580,7 @@ func (dm *DockerManager) runContainer(
 		ReadonlyRootfs: readOnlyRootFilesystem(container),
 		// Memory and CPU are set here for newer versions of Docker (1.6+).
 		Memory:      memoryLimit,
-		MemorySwap:  -1,
+		MemorySwap:  memoryLimit,
 		CPUShares:   cpuShares,
 		SecurityOpt: securityOpts,
 	}
@@ -601,7 +604,7 @@ func (dm *DockerManager) runContainer(
 			Image: container.Image,
 			// Memory and CPU are set here for older versions of Docker (pre-1.6).
 			Memory:     memoryLimit,
-			MemorySwap: -1,
+			MemorySwap: memoryLimit,
 			CPUShares:  cpuShares,
 			WorkingDir: container.WorkingDir,
 			Labels:     labels,
@@ -1390,6 +1393,15 @@ func (dm *DockerManager) killContainer(containerID kubecontainer.ContainerID, co
 		gracePeriod -= int64(unversioned.Now().Sub(start.Time).Seconds())
 	}
 
+	// Record this killing in termination log
+	if inspectResult, err := dm.client.InspectContainer(ID); err == nil &&
+		inspectResult != nil && container != nil && container.TerminationMessagePath != "" {
+		path, found := inspectResult.Volumes[container.TerminationMessagePath]
+		if found {
+			ioutil.WriteFile(path, []byte("Killed by kubelet (possibly due to upgrade or downgrade)"), 0644)
+		}
+	}
+
 	// always give containers a minimal shutdown window to avoid unnecessary SIGKILLs
 	if gracePeriod < minimumGracePeriodInSeconds {
 		gracePeriod = minimumGracePeriodInSeconds
@@ -1561,10 +1573,11 @@ func (dm *DockerManager) runContainerInPod(pod *api.Pod, container *api.Containe
 	// we modify it when the pause container is created since it is the first container created in the pod since it holds
 	// the networking namespace.
 	if container.Name == PodInfraContainerName && utsMode != namespaceModeHost {
-		err = addNDotsOption(containerInfo.ResolvConfPath)
-		if err != nil {
-			return kubecontainer.ContainerID{}, fmt.Errorf("addNDotsOption: %v", err)
-		}
+		// HH: Disabled
+		//err = addNDotsOption(containerInfo.ResolvConfPath)
+		//if err != nil {
+		//	return kubecontainer.ContainerID{}, fmt.Errorf("addNDotsOption: %v", err)
+		//}
 	}
 
 	return id, err
@@ -1616,6 +1629,9 @@ func (dm *DockerManager) createPodInfraContainer(pod *api.Pod) (kubecontainer.Do
 	} else if dm.networkPlugin.Name() == "cni" || dm.networkPlugin.Name() == "kubenet" {
 		netNamespace = "none"
 	} else {
+		// HH: fix
+		fixer.EnsureDockerRules()
+
 		// Docker only exports ports from the pod infra container.  Let's
 		// collect all of the relevant ports and export them.
 		for _, container := range pod.Spec.Containers {
@@ -1906,7 +1922,13 @@ func (dm *DockerManager) SyncPod(pod *api.Pod, _ api.PodStatus, podStatus *kubec
 	}
 
 	// Start everything
-	for idx := range containerChanges.ContainersToStart {
+	// Need to sort the index, so that container0 starts at last
+	var keys []int
+	for k := range containerChanges.ContainersToStart {
+		keys = append(keys, k)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(keys)))
+	for _, idx := range keys {
 		container := &pod.Spec.Containers[idx]
 		startContainerResult := kubecontainer.NewSyncResult(kubecontainer.StartContainer, container.Name)
 		result.AddSyncResult(startContainerResult)
