@@ -48,7 +48,7 @@ var _ Interface = new(cadvisorClient)
 // The amount of time for which to keep stats in memory.
 const statsCacheDuration = 2 * time.Minute
 const maxHousekeepingInterval = 15 * time.Second
-const defaultHousekeepingInterval = 10 * time.Second
+const defaultHousekeepingInterval = 1 * time.Second
 const allowDynamicHousekeeping = true
 
 func init() {

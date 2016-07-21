@@ -91,6 +91,7 @@ import (
 	"k8s.io/kubernetes/third_party/golang/expansion"
 
 	"k8s.io/kubernetes/pkg/kubelet/hostportallocator"
+	"k8s.io/kubernetes/pkg/kubelet/stat"
 )
 
 const (
@@ -1003,6 +1004,8 @@ func (kl *Kubelet) initializeRuntimeDependentModules() {
 	if err := kl.cadvisor.Start(); err != nil {
 		kl.runtimeState.setInternalError(fmt.Errorf("Failed to start cAdvisor %v", err))
 	}
+	// HH extension: start container statistics task
+	stat.NewPrinter(kl.cadvisor, filepath.Join(kl.rootDirectory, "stats")).Start()
 }
 
 // Run starts the kubelet reacting to config updates
