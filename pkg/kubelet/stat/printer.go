@@ -1,8 +1,8 @@
 package stat
 
 import (
+	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"sort"
@@ -19,6 +19,8 @@ import (
 	"k8s.io/kubernetes/pkg/util/wait"
 )
 
+var showStat = flag.Bool("show_stat", false, "Whether to show container statistics on stdout")
+
 type Printer struct {
 	count uint
 	cadvisor cadvisor.Interface
@@ -27,12 +29,11 @@ type Printer struct {
 
 type debugWriter struct {
 	buf flushsyncwriter.FlushSyncWriter
-	stdout io.Writer
 }
 
 func (w *debugWriter) Write(p []byte) (n int, err error) {
-	if w.stdout != nil {
-		w.stdout.Write(p)
+	if *showStat {
+		os.Stdout.Write(p)
 	}
 	return w.buf.Write(p)
 }
@@ -64,7 +65,7 @@ func (p *Printer) Start() {
 }
 
 func (p *Printer) print() {
-	b := &debugWriter{p.buf, nil}
+	b := &debugWriter{p.buf}
 	// Get machine info and root container info
 	machine, err := p.cadvisor.MachineInfo()
 	if err != nil {
@@ -186,6 +187,8 @@ func (p *Printer) print() {
 				diskName := fmt.Sprintf("%d:%d", curIoServiced.Major, curIoServiced.Minor)
 				if diskInfo, ok := machine.DiskMap[diskName]; ok {
 					diskName = diskInfo.Name
+				} else {
+					continue
 				}
 				fmt.Fprintf(b, "%s %d,%d %d,%d ",
 					diskName,

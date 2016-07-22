@@ -368,7 +368,7 @@ func (self *containerData) nextHousekeeping(lastHousekeeping time.Time) time.Tim
 		}
 	}
 
-	return lastHousekeeping.Add(jitter(self.housekeepingInterval, 1.0))
+	return lastHousekeeping.Add(self.housekeepingInterval)
 }
 
 // TODO(vmarmol): Implement stats collecting as a custom collector.

@@ -1040,6 +1040,7 @@ func (self *manager) watchForNewOoms() error {
 			if err != nil {
 				glog.Errorf("failed to add OOM kill event for %q: %v", oomInstance.ContainerName, err)
 			}
+			glog.Warningf("Created an OOM kill event in container %q at %v: %q (%d)", oomInstance.VictimContainerName, oomInstance.TimeOfDeath, oomInstance.ProcessName, oomInstance.Pid)
 		}
 	}()
 	return nil

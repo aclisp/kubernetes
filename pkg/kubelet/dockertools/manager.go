@@ -385,6 +385,13 @@ func (dm *DockerManager) inspectContainer(id string, podName, podNamespace strin
 
 		terminationMessagePath := containerInfo.TerminationMessagePath
 		if terminationMessagePath != "" {
+			if path, found := iResult.Volumes[terminationMessagePath]; found {
+				if data, err := ioutil.ReadFile(path); err != nil {
+					message = fmt.Sprintf("Error on reading termination-log %s: %v", path, err)
+				} else {
+					message = string(data)
+				}
+			}
 			for _, mount := range iResult.Mounts {
 				if mount.Destination == terminationMessagePath {
 					path := mount.Source
@@ -1398,7 +1405,8 @@ func (dm *DockerManager) killContainer(containerID kubecontainer.ContainerID, co
 		inspectResult != nil && container != nil && container.TerminationMessagePath != "" {
 		path, found := inspectResult.Volumes[container.TerminationMessagePath]
 		if found {
-			ioutil.WriteFile(path, []byte("Killed by kubelet (possibly due to upgrade or downgrade)"), 0644)
+			message := fmt.Sprintf("Killed by signode: %s", reason)
+			ioutil.WriteFile(path, []byte(message), 0644)
 		}
 	}
 
