@@ -69,11 +69,11 @@ func (p *Printer) print() {
 	// Get machine info and root container info
 	machine, err := p.cadvisor.MachineInfo()
 	if err != nil {
-		glog.Fatal(err)
+		glog.Error(err)
 	}
 	rootCont, err := p.cadvisor.ContainerInfo("/", &cadvisorapi.ContainerInfoRequest{NumStats:1})
 	if err != nil {
-		glog.Fatal(err)
+		glog.Error(err)
 	}
 	// Print root container
 	if p.count % 60 == 0 {
@@ -85,7 +85,7 @@ func (p *Printer) print() {
 	// Get and sort all docker containers
 	containers, err := p.cadvisor.AllDockerContainers(&cadvisorapi.ContainerInfoRequest{NumStats:2})
 	if err != nil {
-		glog.Fatal(err)
+		glog.Error(err)
 	}
 	var contNames []string
 	for contName := range containers {
