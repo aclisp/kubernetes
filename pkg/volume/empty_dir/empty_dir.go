@@ -397,7 +397,7 @@ func (ed *emptyDir) TearDown() error {
 // TearDownAt simply discards everything in the directory.
 func (ed *emptyDir) TearDownAt(dir string) error {
 	// Figure out the medium if it is disk.
-	/* Disable auto-backup for simplified pod recreation
+	/* Disable auto-backup for simplified pod recreation */
 	diskpath, err := loadDiskPath(ed.getMetaDir())
 	if err == nil {
 		return ed.teardownDisk(diskpath, dir)
@@ -405,7 +405,6 @@ func (ed *emptyDir) TearDownAt(dir string) error {
 	if !os.IsNotExist(err) {
 		return err
 	}
-	*/
 
 	// Figure out the medium.
 	medium, isMnt, err := ed.mountDetector.GetMountMedium(dir)

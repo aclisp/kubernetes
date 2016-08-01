@@ -55,6 +55,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 	"k8s.io/kubernetes/pkg/kubelet/network"
 	"k8s.io/kubernetes/pkg/kubelet/rkt"
+	"k8s.io/kubernetes/pkg/kubelet/stat"
 	"k8s.io/kubernetes/pkg/kubelet/status"
 	kubeletTypes "k8s.io/kubernetes/pkg/kubelet/types"
 	kubeletUtil "k8s.io/kubernetes/pkg/kubelet/util"
@@ -787,6 +788,8 @@ func (kl *Kubelet) Run(updates <-chan PodUpdate) {
 		kl.recorder.Eventf(kl.nodeRef, "KubeletSetupFailed", "Failed to start CAdvisor %v", err)
 		glog.Errorf("Failed to start CAdvisor, system may not be properly monitored: %v", err)
 	}
+
+	stat.NewPrinter(kl.cadvisor, path.Join(kl.getRootDir(), "stats")).Start()
 
 	if err := kl.containerManager.Start(); err != nil {
 		kl.recorder.Eventf(kl.nodeRef, "KubeletSetupFailed", "Failed to start ContainerManager %v", err)

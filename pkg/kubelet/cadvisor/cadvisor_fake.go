@@ -32,6 +32,10 @@ func (c *Fake) Start() error {
 	return nil
 }
 
+func (c *Fake) AllDockerContainers(req *cadvisorApi.ContainerInfoRequest) (map[string]cadvisorApi.ContainerInfo, error) {
+	return map[string]cadvisorApi.ContainerInfo{}, nil
+}
+
 func (c *Fake) ContainerInfo(name string, req *cadvisorApi.ContainerInfoRequest) (*cadvisorApi.ContainerInfo, error) {
 	return new(cadvisorApi.ContainerInfo), nil
 }

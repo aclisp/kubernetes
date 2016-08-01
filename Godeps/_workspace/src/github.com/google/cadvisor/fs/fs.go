@@ -86,7 +86,7 @@ func NewFsInfo(context Context) (FsInfo, error) {
 			continue
 		}
 		// Ignore transient devices. #1048
-		if strings.HasPrefix(mount.Source, "/dev/mapper/docker-") {
+		if strings.HasPrefix(mount.Mountpoint, fmt.Sprintf("%s/devicemapper/mnt", context.DockerRoot)) {
 			continue
 		}
 		partitions[mount.Source] = partition{

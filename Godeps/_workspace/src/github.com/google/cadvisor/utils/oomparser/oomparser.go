@@ -32,7 +32,7 @@ import (
 var containerRegexp *regexp.Regexp = regexp.MustCompile(
 	`Task in (.*) killed as a result of limit of (.*)`)
 var lastLineRegexp *regexp.Regexp = regexp.MustCompile(
-	`(^[A-Z]{1}[a-z]{2} .*[0-9]{1,2} [0-9]{1,2}:[0-9]{2}:[0-9]{2}) .* Killed process ([0-9]+) \(([0-9A-Za-z_]+)\)`)
+	`(^[A-Z][a-z]{2} .*[0-9]{1,2} [0-9]{1,2}:[0-9]{2}:[0-9]{2}) .* Killed process ([0-9]+),?.* \((.+)\)`)
 var firstLineRegexp *regexp.Regexp = regexp.MustCompile(
 	`invoked oom-killer:`)
 
@@ -63,8 +63,8 @@ func getContainerName(line string, currentOomInstance *OomInstance) error {
 	if parsedLine == nil {
 		return nil
 	}
-	currentOomInstance.ContainerName = path.Join("/", parsedLine[1])
-	currentOomInstance.VictimContainerName = path.Join("/", parsedLine[2])
+	currentOomInstance.ContainerName = path.Join("/", parsedLine[2])
+	currentOomInstance.VictimContainerName = path.Join("/", parsedLine[1])
 	return nil
 }
 
@@ -139,24 +139,26 @@ func (self *OomParser) StreamOoms(outStream chan *OomInstance) {
 	}()
 
 	for line := range lineChannel {
+		glog.V(9).Infof("oom1: %s", line)
 		in_oom_kernel_log := checkIfStartOfOomMessages(line)
 		if in_oom_kernel_log {
 			oomCurrentInstance := &OomInstance{
 				ContainerName: "/",
 			}
-			finished := false
-			for !finished {
+			for line := range lineChannel {
+				glog.V(9).Infof("oom2: %s", line)
 				err := getContainerName(line, oomCurrentInstance)
 				if err != nil {
 					glog.Errorf("%v", err)
 				}
-				finished, err = getProcessNamePid(line, oomCurrentInstance)
+				finished, err := getProcessNamePid(line, oomCurrentInstance)
 				if err != nil {
 					glog.Errorf("%v", err)
 				}
-				line = <-lineChannel
+				if finished {
+					break
+				}
 			}
-			in_oom_kernel_log = false
 			outStream <- oomCurrentInstance
 		}
 	}
