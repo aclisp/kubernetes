@@ -1,0 +1,5 @@
+FROM prom/busybox:glibc
+
+ADD nodeport-allocator /
+
+CMD ["/nodeport-allocator"]
