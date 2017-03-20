@@ -152,7 +152,7 @@ func setupSignalHandlers() {
 
 func setupHttpHandlers() {
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "ok")
+		fmt.Fprintf(w, "healthz ok\n")
 	})
 	http.HandleFunc("/getports", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
@@ -187,7 +187,7 @@ func setupHttpHandlers() {
 		}
 
 		// Output result
-		fmt.Fprintf(w, "%s", result)
+		fmt.Fprintf(w, "%s\n", result)
 	})
 	http.HandleFunc("/deleteports", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
@@ -200,7 +200,7 @@ func setupHttpHandlers() {
 		}
 
 		DeletePorts(podName)
-		fmt.Fprintf(w, "ok")
+		fmt.Fprintf(w, "deleteports ok\n")
 	})
 }
 
