@@ -5,13 +5,16 @@ import (
 	"fmt"
 	flag "github.com/spf13/pflag"
 	"io/ioutil"
+	k8sapi "k8s.io/kubernetes/pkg/api"
 	k8snet "k8s.io/kubernetes/pkg/util/net"
+	k8swait "k8s.io/kubernetes/pkg/util/wait"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 )
 
 var (
@@ -217,6 +220,44 @@ func setupPortRegistry() {
 	}
 }
 
+func portGarbageCollectOnce() {
+	resp, err := http.Get("http://127.0.0.1:10255/pods")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	decoder := json.NewDecoder(resp.Body)
+	var pods k8sapi.PodList
+	err = decoder.Decode(&pods)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
+	runningPods := make(map[string]bool)
+	for _, pod := range pods.Items {
+		runningPods[pod.Name] = true
+	}
+
+	var toBeDeletedPods []string
+	registry.Enum(func(podname string, _ []int) {
+		// If the pod exists in registry but not running, add it to list
+		if !runningPods[podname] {
+			toBeDeletedPods = append(toBeDeletedPods, podname)
+		}
+	})
+
+	for _, pod := range toBeDeletedPods {
+		DeletePorts(pod)
+	}
+}
+
+func setupPortGarbageCollector() {
+	go k8swait.Until(portGarbageCollectOnce, 5*time.Second, k8swait.NeverStop)
+}
+
 func main() {
 	// Init and set the default value of conf
 	conf := Config{
@@ -238,6 +279,9 @@ func main() {
 
 	// Setup HTTP API handlers
 	setupHttpHandlers()
+
+	// Setup port garbage collector
+	setupPortGarbageCollector()
 
 	// Setup HTTP server
 	setupHttpServer(conf)

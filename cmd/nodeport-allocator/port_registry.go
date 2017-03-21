@@ -83,3 +83,12 @@ func newPortRegistry() *PortRegistry {
 	reg.PortMap = make(map[string][]int)
 	return reg
 }
+
+func (reg *PortRegistry) Enum(f func(string, []int)) {
+	reg.lock.Lock()
+	defer reg.lock.Unlock()
+
+	for key, value := range reg.PortMap {
+		f(key, value)
+	}
+}
