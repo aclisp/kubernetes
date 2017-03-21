@@ -27,6 +27,7 @@ function signal_handler {
     catalina.sh stop
     wait $PID
     stop_hook
+    exit
 }
 
 trap signal_handler SIGHUP SIGINT SIGTERM SIGKILL SIGPIPE SIGALRM SIGUSR1 SIGUSR2
@@ -34,7 +35,9 @@ trap signal_handler SIGHUP SIGINT SIGTERM SIGKILL SIGPIPE SIGALRM SIGUSR1 SIGUSR
 catalina.sh run &
 PID=$!
 wait $PID
+EXIT_STATUS=$?
 stop_hook
+exit $EXIT_STATUS
 
 # Test cases:
 #   Run container foreground,
