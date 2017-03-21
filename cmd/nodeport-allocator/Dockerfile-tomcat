@@ -1,8 +1,12 @@
+#FROM frolvlad/alpine-glibc
 FROM tomcat:8.5.12-jre8-alpine
 
 RUN apk update && apk add jq && apk add curl
 
 ADD EntryPoint.sh .
 ADD server.xml conf/
+
+#ADD test-signal .
+#RUN chmod +x test-signal
 
 CMD ["sh", "EntryPoint.sh"]
