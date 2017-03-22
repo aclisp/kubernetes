@@ -49,12 +49,18 @@ for i in $(seq 0 $((POD_NUM-1))); do
 		continue
 	fi
 
-	POD_PORT=$(curl -sS "http://$POD_IP:4195/getports?pod=$POD_NAME&num=0" | jq -r ".Ports[0]")
-	if [[ -z $POD_PORT || "$POD_PORT" == "null" ]]; then
+	POD_PORT=$(curl -sS "http://$POD_IP:4195/getports?pod=$POD_NAME&num=0")
+	PORT_NUM=$(echo "$POD_PORT" | jq -r ".Ports | length" 2>/dev/null)
+	if [[ -z $PORT_NUM || "$PORT_NUM" == "0" ]]; then
 		continue
 	fi
 
-	echo "  $POD_IP:$POD_PORT"
+	PORT0=$(echo "$POD_PORT" | jq -r ".Ports[0]")
+	if [[ -z $PORT0 || "$PORT0" == "null" ]]; then
+		continue
+	fi
+
+	echo "  $POD_IP:$PORT0"
 done
 
 echo "}"  # upstream }
