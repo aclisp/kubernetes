@@ -1,0 +1,112 @@
+#!/bin/bash
+set +x  # trace
+set -e  # exit immediately
+
+function get_servers {
+    DEPLOY_NAME="$1"
+    MASTER_URL="http://master-test.friday.yy.com"
+    DEPLOY_PATH="apis/extensions/v1beta1/namespaces/default/deployments"
+    DEPLOY_URL="$MASTER_URL/$DEPLOY_PATH"
+    DEPLOY_IDQ=".metadata.labels.app"
+    POD_PATH="api/v1/namespaces/default/pods"
+    POD_URL="$MASTER_URL/$POD_PATH"
+
+    DEPLOY_ID=$(curl -sS "$DEPLOY_URL/$DEPLOY_NAME" | jq -r "$DEPLOY_IDQ")
+    if [[ -z $DEPLOY_ID || "$DEPLOY_ID" == "null" ]]; then
+        >&2 echo "Can not get DEPLOY_ID from \"$DEPLOY_NAME\""
+        return 1
+    fi
+
+    POD_SELECTOR="app%3D$DEPLOY_ID"
+    POD_LIST=$(curl -sS "$POD_URL?labelSelector=$POD_SELECTOR")
+    POD_NUM=$(echo "$POD_LIST" | jq -r ".items | length")
+    if [[ -z $POD_NUM || "$POD_NUM" == "0" ]]; then
+        >&2 echo "No POD for \"$DEPLOY_NAME\""
+        return
+    fi
+
+    for i in $(seq 0 $((POD_NUM-1))); do
+        POD_NAME=$(echo "$POD_LIST" | jq -r ".items[$i].metadata.name")
+
+        POD_PHASE=$(echo "$POD_LIST" | jq -r ".items[$i].status.phase")
+        if [[ "$POD_PHASE" != "Running" ]]; then
+            continue
+        fi
+
+        POD_IP=$(echo "$POD_LIST" | jq -r ".items[$i].status.hostIP")
+        if [[ -z $POD_IP || "$POD_IP" == "null" ]]; then
+            continue
+        fi
+
+        POD_PORT=$(curl -sS "http://$POD_IP:4195/getports?pod=$POD_NAME&num=0")
+        PORT_NUM=$(echo "$POD_PORT" | jq -r ".Ports | length" 2>/dev/null)
+        if [[ -z $PORT_NUM || "$PORT_NUM" == "0" ]]; then
+            continue
+        fi
+
+        PORT0=$(echo "$POD_PORT" | jq -r ".Ports[0]")
+        if [[ -z $PORT0 || "$PORT0" == "null" ]]; then
+            continue
+        fi
+
+        echo "        server $POD_IP:$PORT0;"
+    done
+}
+
+function update_conf {
+    CONF_FILE="$1"
+    CONF_FILE_NEW="$CONF_FILE.temp"
+
+    ## Get deploy name from CONF_FILE
+    DEPLOY_NAME=$(basename $CONF_FILE .conf)
+
+    ## Print all the lines before the line containing the matching text:
+    ## (from line-1 to BEFORE the matching line, NOT including the matching line)
+    matchtext0="{friday-servers:$DEPLOY_NAME:begin}"
+    part0=$(sed -e "/$matchtext0/,\$d" $CONF_FILE)
+
+    ## Print from the line that follows the line containing the
+    ## matching text, till the end of the file:
+    ## (from AFTER the matching line to EOF, NOT including the matching line)
+    matchtext1="{friday-servers:$DEPLOY_NAME:end}"
+    part1=$(sed -e "0,/$matchtext1/d" $CONF_FILE)
+
+    > $CONF_FILE_NEW
+    echo "$part0"               >> $CONF_FILE_NEW
+    echo "        #$matchtext0" >> $CONF_FILE_NEW
+
+    if ! get_servers $DEPLOY_NAME >> $CONF_FILE_NEW; then
+        rm -f $CONF_FILE_NEW
+        return
+    fi
+
+    echo "        #$matchtext1" >> $CONF_FILE_NEW
+    echo "$part1"               >> $CONF_FILE_NEW
+
+    if diff -u $CONF_FILE $CONF_FILE_NEW; then
+        echo "$CONF_FILE has no change"
+        rm -f $CONF_FILE_NEW
+        return
+    fi
+
+    mv -f $CONF_FILE_NEW $CONF_FILE
+    echo "$CONF_FILE changed! reloading nginx ..."
+    #/etc/init.d/nginx reload
+}
+
+function update_all {
+    CONF_DIR="/data/services/nginx_vhost"
+    CONF_EXT="*.conf"
+
+    echo ""
+    echo ""
+    echo "Processing $CONF_EXT files under $CONF_DIR ..."
+    for _fname in $(ls -1 $CONF_DIR/$CONF_EXT); do
+        update_conf $_fname
+    done
+}
+
+while true; do
+    update_all
+    sleep 10
+done
