@@ -1,0 +1,42 @@
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: nodeport-allocator
+spec:
+  template:
+    metadata:
+      labels:
+        app: nodeport-allocator
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: nodeport-allocator
+        image: 101.226.20.190:5000/nodeport-allocator:v0.0.7
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /dev
+          name: syslog-ng
+        - mountPath: /etc
+          name: etc-config
+        - mountPath: /home/dspeak
+          name: host-info
+        - mountPath: /data/core_files
+          name: coredump-file
+      volumes:
+      - hostPath:
+          path: /tmp
+        name: tmp
+      - hostPath:
+          path: /dev
+        name: syslog-ng
+      - hostPath:
+          path: /etc
+        name: etc-config
+      - hostPath:
+          path: /home/dspeak
+        name: host-info
+      - hostPath:
+          path: /data/core_files
+        name: coredump-file

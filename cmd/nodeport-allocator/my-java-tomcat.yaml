@@ -1,0 +1,50 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: my-java-tomcat
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: my-java-tomcat
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: my-java-tomcat
+        image: 101.226.20.190:5000/my-java-tomcat:v0.0.5
+        env:
+        - name: PODNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: PORTNUM
+          value: "3"
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /dev
+          name: syslog-ng
+        - mountPath: /etc
+          name: etc-config
+        - mountPath: /home/dspeak
+          name: host-info
+        - mountPath: /data/core_files
+          name: coredump-file
+      volumes:
+      - hostPath:
+          path: /tmp
+        name: tmp
+      - hostPath:
+          path: /dev
+        name: syslog-ng
+      - hostPath:
+          path: /etc
+        name: etc-config
+      - hostPath:
+          path: /home/dspeak
+        name: host-info
+      - hostPath:
+          path: /data/core_files
+        name: coredump-file

@@ -40,16 +40,25 @@ type PodPorts struct {
 	Ports   []int
 }
 
+// GetPorts query (if num<=0) or allocate ports for podname.
+// If the ports are already allocated, it returns them as is.
 func GetPorts(podname string, num int) (PodPorts, error) {
 	ports, ok := registry.Find(podname)
-	if !ok {
+	if ok {
+		return PodPorts{
+			PodName: podname,
+			Ports:   ports,
+		}, nil
+	}
+
+	if num > 0 {
 		return allocatePorts(podname, num)
 	}
 
 	return PodPorts{
 		PodName: podname,
-		Ports:   ports,
-	}, nil
+		Ports:   nil,
+	}, fmt.Errorf("Ports are not allocated for %q", podname)
 }
 
 func allocatePorts(podname string, num int) (PodPorts, error) {
@@ -85,6 +94,7 @@ func allocatePorts(podname string, num int) (PodPorts, error) {
 	}, err
 }
 
+// DeletePorts deletes from registry the ports allocated for podname.
 func DeletePorts(podname string) {
 	ports, ok := registry.Find(podname)
 	if !ok {
@@ -147,7 +157,7 @@ func setupSignalHandlers() {
 		syscall.SIGUSR1,
 		syscall.SIGUSR2)
 	go func() {
-		fmt.Fprintf(os.Stdout, "Received signal: %s, will exit when the grace period ends\n", <-sigChan)
+		fmt.Fprintf(os.Stdout, "Received signal: %q, will exit when the grace period ends\n", <-sigChan)
 		registry.Save(*dataFile)
 		os.Exit(0)
 	}()
@@ -168,12 +178,12 @@ func setupHttpHandlers() {
 		}
 		num := query.Get("num")
 		if num == "" {
-			http.Error(w, fmt.Sprintf("How many ports do you want for %s", podName), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("How many ports do you want for %q", podName), http.StatusBadRequest)
 			return
 		}
 		numInt, err := strconv.Atoi(num)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Invalid ports number: %s", num), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Invalid ports number: %q", num), http.StatusBadRequest)
 			return
 		}
 
