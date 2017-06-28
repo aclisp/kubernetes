@@ -257,7 +257,7 @@ func (m *manager) TerminatePod(pod *api.Pod) {
 			Terminated: &api.ContainerStateTerminated{},
 		}
 	}
-	m.updateStatusInternal(pod, pod.Status, true)
+	m.updateStatusInternal(pod, status, true)
 }
 
 // updateStatusInternal updates the internal status cache, and queues an update to the api server if
