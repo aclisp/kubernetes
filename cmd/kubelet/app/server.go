@@ -536,7 +536,7 @@ func createClientConfig(s *options.KubeletServer) (*restclient.Config, error) {
 	}
 	// TODO: adapt Kube client to support LB over several servers
 	if len(s.APIServerList) > 1 {
-		glog.Infof("Multiple api servers specified.  Picking first one")
+		glog.Infof("Multiple api servers specified. Use client LB.")
 	}
 
 	if s.KubeConfig.Provided() {
@@ -555,6 +555,11 @@ func createClientConfig(s *options.KubeletServer) (*restclient.Config, error) {
 		}
 		authConfig.Host = s.APIServerList[0]
 		clientConfig = &authConfig
+	}
+	clientConfig.BackupHosts = s.APIServerList[1:]
+	glog.Infof("First api server: %q", clientConfig.Host)
+	for _, backup := range clientConfig.BackupHosts {
+		glog.Infof("Backup api server: %q", backup)
 	}
 	return clientConfig, nil
 }

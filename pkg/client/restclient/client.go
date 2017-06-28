@@ -48,6 +48,10 @@ const (
 type RESTClient struct {
 	// base is the root URL for all invocations of the client
 	base *url.URL
+
+	// baseURLProvider is the function provides `base` URL when evaluated.
+	baseURLProvider func() *url.URL
+
 	// versionedAPIPath is a path segment connecting the base URL to the resource root
 	versionedAPIPath string
 
@@ -78,13 +82,23 @@ type Serializers struct {
 // NewRESTClient creates a new RESTClient. This client performs generic REST functions
 // such as Get, Put, Post, and Delete on specified paths.  Codec controls encoding and
 // decoding of responses from the server.
-func NewRESTClient(baseURL *url.URL, versionedAPIPath string, config ContentConfig, maxQPS float32, maxBurst int, rateLimiter flowcontrol.RateLimiter, client *http.Client) (*RESTClient, error) {
-	base := *baseURL
-	if !strings.HasSuffix(base.Path, "/") {
-		base.Path += "/"
+func NewRESTClient(baseURL *url.URL, backupURLs []*url.URL, versionedAPIPath string, config ContentConfig, maxQPS float32, maxBurst int, rateLimiter flowcontrol.RateLimiter, client *http.Client) (*RESTClient, error) {
+	urls := make([]url.URL, 0, 1 + len(backupURLs))
+	urls = append(urls, *baseURL)
+	for _, backup := range backupURLs {
+		urls = append(urls, *backup)
 	}
-	base.RawQuery = ""
-	base.Fragment = ""
+	pointers := make([]*url.URL, 0, len(urls))
+	for _, url := range urls {
+		pointers = append(pointers, &url)
+	}
+	for _, base := range pointers {
+		if !strings.HasSuffix(base.Path, "/") {
+			base.Path += "/"
+		}
+		base.RawQuery = ""
+		base.Fragment = ""
+	}
 
 	if config.GroupVersion == nil {
 		config.GroupVersion = &unversioned.GroupVersion{}
@@ -103,8 +117,17 @@ func NewRESTClient(baseURL *url.URL, versionedAPIPath string, config ContentConf
 	} else if rateLimiter != nil {
 		throttle = rateLimiter
 	}
+
+	slightlyStickyProvider := newSlightlyStickyProvider(pointers)
+	if client != nil {
+		client.Transport = slightlyStickyProvider.wrap(client.Transport)
+	} else {
+		client = &http.Client{Transport: slightlyStickyProvider.wrap(http.DefaultTransport)}
+	}
+
 	return &RESTClient{
-		base:             &base,
+		base:             pointers[0],
+		baseURLProvider:  slightlyStickyProvider.get,
 		versionedAPIPath: versionedAPIPath,
 		contentConfig:    config,
 		serializers:      *serializers,
@@ -186,11 +209,18 @@ func createSerializers(config ContentConfig) (*Serializers, error) {
 //
 func (c *RESTClient) Verb(verb string) *Request {
 	backoff := c.createBackoffMgr()
+	baseURLProvider := c.baseURLProvider
+
+	if baseURLProvider == nil {
+		baseURLProvider = func() *url.URL {
+			return c.base
+		}
+	}
 
 	if c.Client == nil {
-		return NewRequest(nil, verb, c.base, c.versionedAPIPath, c.contentConfig, c.serializers, backoff, c.Throttle)
+		return NewRequest(nil, verb, baseURLProvider(), c.versionedAPIPath, c.contentConfig, c.serializers, backoff, c.Throttle)
 	}
-	return NewRequest(c.Client, verb, c.base, c.versionedAPIPath, c.contentConfig, c.serializers, backoff, c.Throttle)
+	return NewRequest(c.Client, verb, baseURLProvider(), c.versionedAPIPath, c.contentConfig, c.serializers, backoff, c.Throttle)
 }
 
 // Post begins a POST request. Short for c.Verb("POST").

@@ -50,6 +50,11 @@ type Config struct {
 	// be appended to all request URIs used to access the apiserver. This allows a frontend
 	// proxy to easily relocate all of the apiserver endpoints.
 	Host string
+	// Hosts must be a slice of host strings, host:port pairs, or URLs to the base of the
+	// apiservers. If a URL is given then the (optional) Path of that URL represents a prefix
+	// that must be appended to all request URIs used to access the apiserver. This allows a
+	// frontend proxy to easily relocate all of the apiserver endpoints.
+	BackupHosts []string
 	// APIPath is a sub-path that points to an API root.
 	APIPath string
 	// Prefix is the sub path of the server. If not specified, the client will set
@@ -177,6 +182,11 @@ func RESTClientFor(config *Config) (*RESTClient, error) {
 		return nil, err
 	}
 
+	backupURLs, _, err := defaultBackupServerUrlFor(config)
+	if err != nil {
+		return nil, err
+	}
+
 	transport, err := TransportFor(config)
 	if err != nil {
 		return nil, err
@@ -187,7 +197,7 @@ func RESTClientFor(config *Config) (*RESTClient, error) {
 		httpClient = &http.Client{Transport: transport}
 	}
 
-	return NewRESTClient(baseURL, versionedAPIPath, config.ContentConfig, qps, burst, config.RateLimiter, httpClient)
+	return NewRESTClient(baseURL, backupURLs, versionedAPIPath, config.ContentConfig, qps, burst, config.RateLimiter, httpClient)
 }
 
 // UnversionedRESTClientFor is the same as RESTClientFor, except that it allows
@@ -198,6 +208,11 @@ func UnversionedRESTClientFor(config *Config) (*RESTClient, error) {
 	}
 
 	baseURL, versionedAPIPath, err := defaultServerUrlFor(config)
+	if err != nil {
+		return nil, err
+	}
+
+	backupURLs, _, err := defaultBackupServerUrlFor(config)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +233,7 @@ func UnversionedRESTClientFor(config *Config) (*RESTClient, error) {
 		versionConfig.GroupVersion = &v
 	}
 
-	return NewRESTClient(baseURL, versionedAPIPath, versionConfig, config.QPS, config.Burst, config.RateLimiter, httpClient)
+	return NewRESTClient(baseURL, backupURLs, versionedAPIPath, versionConfig, config.QPS, config.Burst, config.RateLimiter, httpClient)
 }
 
 // SetKubernetesDefaults sets default values on the provided client config for accessing the

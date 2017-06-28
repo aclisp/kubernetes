@@ -91,3 +91,29 @@ func defaultServerUrlFor(config *Config) (*url.URL, string, error) {
 	}
 	return DefaultServerURL(host, config.APIPath, unversioned.GroupVersion{}, defaultTLS)
 }
+
+func defaultBackupServerUrlFor(config *Config) ([]*url.URL, string, error) {
+	hasCA := len(config.CAFile) != 0 || len(config.CAData) != 0
+	hasCert := len(config.CertFile) != 0 || len(config.CertData) != 0
+	defaultTLS := hasCA || hasCert || config.Insecure
+
+	var urls []*url.URL
+	var str string
+	var err error
+	for _, host := range config.BackupHosts {
+		var url *url.URL
+		if host == "" {
+			host = "localhost"
+		}
+
+		if config.GroupVersion != nil {
+			url, str, err = DefaultServerURL(host, config.APIPath, *config.GroupVersion, defaultTLS)
+		} else {
+			url, str, err = DefaultServerURL(host, config.APIPath, unversioned.GroupVersion{}, defaultTLS)
+		}
+		if err == nil {
+			urls = append(urls, url)
+		}
+	}
+	return urls, str, err
+}
