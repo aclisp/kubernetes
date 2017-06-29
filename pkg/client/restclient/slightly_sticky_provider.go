@@ -30,7 +30,7 @@ import (
 func newSlightlyStickyProvider(hosts []*url.URL) *slightlyStickyProvider {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	var errorsPerSecond float32 = 0.02
-	errorsBurst := 2
+	errorsBurst := 5
 	return &slightlyStickyProvider{
 		hosts:           hosts,
 		cur:             rng.Intn(len(hosts)),
@@ -61,6 +61,7 @@ func (s *slightlyStickyProvider) next() {
 	s.Lock()
 	defer s.Unlock()
 	s.cur = s.rng.Intn(len(s.hosts))
+	s.ratelimiter = flowcontrol.NewTokenBucketRateLimiter(s.errorsPerSecond, s.errorsBurst)
 }
 
 func (s *slightlyStickyProvider) wrap(delegate http.RoundTripper) http.RoundTripper {
