@@ -23,13 +23,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/util/flowcontrol"
 )
 
 func newSlightlyStickyProvider(hosts []*url.URL) *slightlyStickyProvider {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	var errorsPerSecond float32 = 25
-	errorsBurst := 5
+	var errorsPerSecond float32 = 0.02
+	errorsBurst := 2
 	return &slightlyStickyProvider{
 		hosts:           hosts,
 		cur:             rng.Intn(len(hosts)),
@@ -65,6 +66,7 @@ func (s *slightlyStickyProvider) next() {
 func (s *slightlyStickyProvider) wrap(delegate http.RoundTripper) http.RoundTripper {
 	return rtfunc(func(req *http.Request) (*http.Response, error) {
 		resp, err := delegate.RoundTrip(req)
+		glog.V(5).Infof("delegate.RoundTrip provider(%p) req(%p) resp(%p) err(%v)", s, req, resp, err)
 		if err != nil {
 			tryAccept := func() bool {
 				s.RLock()
@@ -72,7 +74,9 @@ func (s *slightlyStickyProvider) wrap(delegate http.RoundTripper) http.RoundTrip
 				return !s.ratelimiter.TryAccept()
 			}
 			if tryAccept() {
+				glog.Warningf("provider(%p): before switch host: cur(%d) %s", s, s.cur, s.hosts[s.cur].String())
 				s.next()
+				glog.Warningf("provider(%p): after switch host: cur(%d) %s", s, s.cur, s.hosts[s.cur].String())
 			}
 		}
 		return resp, err

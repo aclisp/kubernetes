@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/runtime"
@@ -83,14 +84,19 @@ type Serializers struct {
 // such as Get, Put, Post, and Delete on specified paths.  Codec controls encoding and
 // decoding of responses from the server.
 func NewRESTClient(baseURL *url.URL, backupURLs []*url.URL, versionedAPIPath string, config ContentConfig, maxQPS float32, maxBurst int, rateLimiter flowcontrol.RateLimiter, client *http.Client) (*RESTClient, error) {
-	urls := make([]url.URL, 0, 1 + len(backupURLs))
+	glog.Infof("NewRESTClient: baseURL(%s) versionedAPIPath(%s) maxQPS(%f) maxBurst(%d) client(%p)",
+		baseURL.String(), versionedAPIPath, maxQPS, maxBurst, client)
+	for _, x := range backupURLs {
+		glog.Infof("NewRESTClient: backupURL(%s)", x.String())
+	}
+	urls := make([]url.URL, 0, 1+len(backupURLs))
 	urls = append(urls, *baseURL)
 	for _, backup := range backupURLs {
 		urls = append(urls, *backup)
 	}
 	pointers := make([]*url.URL, 0, len(urls))
-	for _, url := range urls {
-		pointers = append(pointers, &url)
+	for i := range urls {
+		pointers = append(pointers, &urls[i])
 	}
 	for _, base := range pointers {
 		if !strings.HasSuffix(base.Path, "/") {
@@ -98,6 +104,9 @@ func NewRESTClient(baseURL *url.URL, backupURLs []*url.URL, versionedAPIPath str
 		}
 		base.RawQuery = ""
 		base.Fragment = ""
+	}
+	for _, x := range pointers {
+		glog.V(5).Infof("NewRESTClient: pointerToURL(%s)", x.String())
 	}
 
 	if config.GroupVersion == nil {
@@ -210,12 +219,13 @@ func createSerializers(config ContentConfig) (*Serializers, error) {
 func (c *RESTClient) Verb(verb string) *Request {
 	backoff := c.createBackoffMgr()
 	baseURLProvider := c.baseURLProvider
+	baseURL := c.base
 
-	if baseURLProvider == nil {
-		baseURLProvider = func() *url.URL {
-			return c.base
-		}
+	if baseURLProvider != nil {
+		baseURL = baseURLProvider()
 	}
+
+	glog.V(5).Infof("Verb: %s c.Client(%p) baseURLProvider(%v) eval to %s", verb, c.Client, baseURLProvider, baseURL.String())
 
 	if c.Client == nil {
 		return NewRequest(nil, verb, baseURLProvider(), c.versionedAPIPath, c.contentConfig, c.serializers, backoff, c.Throttle)
