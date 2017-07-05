@@ -84,10 +84,10 @@ type Serializers struct {
 // such as Get, Put, Post, and Delete on specified paths.  Codec controls encoding and
 // decoding of responses from the server.
 func NewRESTClient(baseURL *url.URL, backupURLs []*url.URL, versionedAPIPath string, config ContentConfig, maxQPS float32, maxBurst int, rateLimiter flowcontrol.RateLimiter, client *http.Client) (*RESTClient, error) {
-	glog.Infof("NewRESTClient: baseURL(%s) versionedAPIPath(%s) maxQPS(%f) maxBurst(%d) client(%p)",
+	glog.V(1).Infof("NewRESTClient: baseURL(%s) versionedAPIPath(%s) maxQPS(%f) maxBurst(%d) client(%p)",
 		baseURL.String(), versionedAPIPath, maxQPS, maxBurst, client)
 	for _, x := range backupURLs {
-		glog.Infof("NewRESTClient: backupURL(%s)", x.String())
+		glog.V(1).Infof("NewRESTClient: backupURL(%s)", x.String())
 	}
 	urls := make([]url.URL, 0, 1+len(backupURLs))
 	urls = append(urls, *baseURL)
