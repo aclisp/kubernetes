@@ -317,7 +317,7 @@ func (f *ConfigFactory) CreateFromKeys(predicateKeys, priorityKeys sets.String, 
 
 	f.Run()
 
-	algo := scheduler.NewGenericScheduler(f.schedulerCache, predicateFuncs, priorityConfigs, extenders)
+	algo := scheduler.NewGenericScheduler(f.schedulerCache, predicateFuncs, priorityConfigs, extenders, f.ReplicaSetLister)
 
 	podBackoff := podBackoff{
 		perPodBackoff: map[types.NamespacedName]*backoffEntry{},
@@ -534,7 +534,8 @@ func (factory *ConfigFactory) makeDefaultErrorFunc(backoff *podBackoff, podQueue
 			pod = &api.Pod{}
 			getBackoff := initialGetBackoff
 			for {
-				if err := factory.Client.Get().Namespace(podID.Namespace).Resource("pods").Name(podID.Name).Do().Into(pod); err == nil {
+				err := factory.Client.Get().Namespace(podID.Namespace).Resource("pods").Name(podID.Name).Do().Into(pod)
+				if err == nil {
 					break
 				}
 				if errors.IsNotFound(err) {

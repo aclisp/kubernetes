@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -27,6 +28,9 @@ import (
 
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/unversioned"
+	"k8s.io/kubernetes/pkg/apis/extensions"
+	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/util"
 	"k8s.io/kubernetes/pkg/util/errors"
 	"k8s.io/kubernetes/pkg/util/workqueue"
@@ -34,6 +38,10 @@ import (
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm/predicates"
 	schedulerapi "k8s.io/kubernetes/plugin/pkg/scheduler/api"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
+)
+
+const (
+	FridaySchedulerAnnotationKey = "scheduler.friday.yy.com/spec"
 )
 
 type FailedPredicateMap map[string][]algorithm.PredicateFailureReason
@@ -66,6 +74,7 @@ type genericScheduler struct {
 	prioritizers      []algorithm.PriorityConfig
 	extenders         []algorithm.SchedulerExtender
 	pods              algorithm.PodLister
+	replicaSetLister  algorithm.ReplicaSetLister
 	lastNodeIndexLock sync.Mutex
 	lastNodeIndex     uint64
 
@@ -111,6 +120,13 @@ func (g *genericScheduler) Schedule(pod *api.Pod, nodeLister algorithm.NodeListe
 		}
 	}
 
+	if _, present := pod.Annotations[FridaySchedulerAnnotationKey]; present {
+		glog.V(4).Infof("Pod %v/%v is scheduling by FridayOS", pod.Namespace, pod.Name)
+		trace.Step("Scheduling by FridayOS")
+		return fridaySchedule(pod, g.replicaSetLister, g.cachedNodeInfoMap, filteredNodes)
+	}
+
+	glog.V(4).Infof("Pod %v/%v is scheduling by Kubernetes", pod.Namespace, pod.Name)
 	trace.Step("Prioritizing")
 	priorityList, err := PrioritizeNodes(pod, g.cachedNodeInfoMap, g.prioritizers, filteredNodes, g.extenders)
 	if err != nil {
@@ -325,12 +341,136 @@ func EqualPriority(_ *api.Pod, nodeNameToInfo map[string]*schedulercache.NodeInf
 	return result, nil
 }
 
-func NewGenericScheduler(cache schedulercache.Cache, predicates map[string]algorithm.FitPredicate, prioritizers []algorithm.PriorityConfig, extenders []algorithm.SchedulerExtender) algorithm.ScheduleAlgorithm {
+func NewGenericScheduler(cache schedulercache.Cache, predicates map[string]algorithm.FitPredicate, prioritizers []algorithm.PriorityConfig, extenders []algorithm.SchedulerExtender, replicaSetLister algorithm.ReplicaSetLister) algorithm.ScheduleAlgorithm {
 	return &genericScheduler{
 		cache:             cache,
 		predicates:        predicates,
 		prioritizers:      prioritizers,
 		extenders:         extenders,
 		cachedNodeInfoMap: make(map[string]*schedulercache.NodeInfo),
+		replicaSetLister:  replicaSetLister,
 	}
+}
+
+type fridaySchedulerSpec struct {
+	CountPerNode int
+}
+
+// fridaySchedule put a number of pods in the same ReplicaSet on all nodes.
+// Currently it uses a binpack strategy, so that the number is fixed on each node.
+func fridaySchedule(pod *api.Pod, replicaSetLister algorithm.ReplicaSetLister, nodeNameToInfo map[string]*schedulercache.NodeInfo, nodes []*api.Node) (string, error) {
+	// Considering pods belonging to the same ReplicaSet
+	spec := fridaySchedulerSpec{}
+	selectors := make([]labels.Selector, 0, 1)
+	if rss, err := replicaSetLister.GetPodReplicaSets(pod); err == nil {
+		for _, rs := range rss {
+			if selector, err := unversioned.LabelSelectorAsSelector(rs.Spec.Selector); err == nil {
+				if err := getSchedulerSpec(rs, &spec); err == nil {
+					selectors = append(selectors, selector)
+				} else {
+					return "", err
+				}
+			}
+		}
+	}
+	glog.V(4).Infof("fridaySchedulerSpec is %+v, selectors are %v", spec, selectors)
+
+	// Count similar pods by node
+	countsByNodeName := make(map[string]int, len(nodes))
+	countsByNodeNameLock := sync.Mutex{}
+	maxCountByNodeName := -1
+	maxCountNodeName := ""
+	minCountByNodeName := -1
+	minCountNodeName := ""
+	nodeNamesByCount := make(map[int][]string, spec.CountPerNode*2+1)
+
+	if len(selectors) > 0 {
+		processNodeFunc := func(i int) {
+			nodeName := nodes[i].Name
+			count := 0
+			for _, nodePod := range nodeNameToInfo[nodeName].Pods() {
+				if pod.Namespace != nodePod.Namespace {
+					continue
+				}
+				// When we are replacing a failed pod, we often see the previous
+				// deleted version while scheduling the replacement.
+				// Ignore the previous deleted version for spreading purposes
+				// (it can still be considered for resource restrictions etc.)
+				if nodePod.DeletionTimestamp != nil {
+					glog.V(4).Infof("skipping pending-deleted pod: %s/%s", nodePod.Namespace, nodePod.Name)
+					continue
+				}
+				matches := false
+				for _, selector := range selectors {
+					if selector.Matches(labels.Set(nodePod.ObjectMeta.Labels)) {
+						matches = true
+						break
+					}
+				}
+				if matches {
+					count++
+				}
+			}
+
+			countsByNodeNameLock.Lock()
+			defer countsByNodeNameLock.Unlock()
+			countsByNodeName[nodeName] = count
+			if maxCountByNodeName < 0 {
+				maxCountByNodeName = count
+				maxCountNodeName = nodeName
+			}
+			if minCountByNodeName < 0 {
+				minCountByNodeName = count
+				minCountNodeName = nodeName
+			}
+			if count > maxCountByNodeName {
+				maxCountByNodeName = count
+				maxCountNodeName = nodeName
+			}
+			if count < minCountByNodeName {
+				minCountByNodeName = count
+				minCountNodeName = nodeName
+			}
+			names := nodeNamesByCount[count]
+			names = append(names, nodeName)
+			nodeNamesByCount[count] = names
+		}
+		workqueue.Parallelize(16, len(nodes), processNodeFunc)
+	}
+	glog.V(4).Infof("countsByNodeName %v", countsByNodeName)
+	glog.V(4).Infof("max %d on %s, min %d on %s", maxCountByNodeName, maxCountNodeName, minCountByNodeName, minCountNodeName)
+
+	if minCountByNodeName < 0 || maxCountByNodeName < 0 || minCountByNodeName > maxCountByNodeName {
+		return "", fmt.Errorf("Invalid minCountByNodeName(%d) and maxCountByNodeName(%d)", minCountByNodeName, maxCountByNodeName)
+	}
+	for i := minCountByNodeName; i <= maxCountByNodeName; i++ {
+		if names, ok := nodeNamesByCount[i]; ok && len(names) > 0 {
+			glog.V(4).Infof("nodeNamesByCount %d %v", i, names)
+			if i < spec.CountPerNode {
+				return names[0], nil
+			}
+		}
+	}
+	return "", fmt.Errorf("All %d nodes have %d pods each for selectors %v", len(nodes), spec.CountPerNode, selectors)
+}
+
+func getSchedulerSpec(rs extensions.ReplicaSet, spec *fridaySchedulerSpec) error {
+	str, ok := rs.Annotations[FridaySchedulerAnnotationKey]
+	if !ok {
+		return fmt.Errorf("Not found FridaySchedulerAnnotationKey(%s) for ReplicaSet %v/%v", FridaySchedulerAnnotationKey, rs.Namespace, rs.Name)
+	}
+	s := fridaySchedulerSpec{}
+	if err := json.Unmarshal([]byte(str), &s); err != nil {
+		return fmt.Errorf("Invalid format of FridaySchedulerAnnotationKey(%s) for ReplicaSet %v/%v", FridaySchedulerAnnotationKey, rs.Namespace, rs.Name)
+	}
+	if s.CountPerNode <= 0 {
+		return fmt.Errorf("CountPerNode(%d) in FridaySchedulerAnnotationKey(%s) must greater than zero for ReplicaSet %v/%v", s.CountPerNode, FridaySchedulerAnnotationKey, rs.Namespace, rs.Name)
+	}
+	// Try to overwrite the input spec if and only if it is not assigned.
+	if spec.CountPerNode == 0 {
+		spec.CountPerNode = s.CountPerNode
+	} else if spec.CountPerNode != s.CountPerNode {
+		return fmt.Errorf("CountPerNode(%d) in FridaySchedulerAnnotationKey(%s) of ReplicaSet %v/%v is different from previous assigned CountPerNode(%d)", s.CountPerNode, FridaySchedulerAnnotationKey, rs.Namespace, rs.Name, spec.CountPerNode)
+	}
+	return nil
 }
